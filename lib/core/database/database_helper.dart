@@ -14,7 +14,7 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    final path = join(await getDatabasesPath(), 'mohassib_v2.db');
+    final path = join(await getDatabasesPath(), 'mohassib_v3.db');
     return await openDatabase(
       path,
       version: 4,
@@ -141,7 +141,20 @@ class DatabaseHelper {
   }
 
   Future<void> _onCreate(Database db, int version) async {
-    // 1. إعدادات المتجر
+    // 1. العملات
+    await db.execute('''
+      CREATE TABLE currencies (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        code            TEXT    NOT NULL UNIQUE,
+        name            TEXT    NOT NULL,
+        exchange_rate   REAL    NOT NULL DEFAULT 1.0,
+        symbol          TEXT,
+        is_default      INTEGER NOT NULL DEFAULT 0,
+        updated_at      TEXT    NOT NULL
+      )
+    ''');
+
+    // 2. إعدادات المتجر
     await db.execute('''
       CREATE TABLE store_settings (
         id          INTEGER PRIMARY KEY,
@@ -157,7 +170,35 @@ class DatabaseHelper {
       )
     ''');
 
-    // 2. المنتجات
+    // 3. الموردين
+    await db.execute('''
+      CREATE TABLE suppliers (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        name            TEXT    NOT NULL,
+        phone           TEXT,
+        address         TEXT,
+        current_balance REAL    NOT NULL DEFAULT 0.0,
+        notes           TEXT,
+        created_at      TEXT    NOT NULL,
+        updated_at      TEXT    NOT NULL
+      )
+    ''');
+
+    // 4. العملاء
+    await db.execute('''
+      CREATE TABLE customers (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        name            TEXT    NOT NULL,
+        phone           TEXT,
+        address         TEXT,
+        current_balance REAL    NOT NULL DEFAULT 0.0,
+        notes           TEXT,
+        created_at      TEXT    NOT NULL,
+        updated_at      TEXT    NOT NULL
+      )
+    ''');
+
+    // 5. المنتجات
     await db.execute('''
       CREATE TABLE products (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -165,8 +206,10 @@ class DatabaseHelper {
         barcode         TEXT,
         buy_price       REAL    NOT NULL DEFAULT 0.0,
         sell_price      REAL    NOT NULL DEFAULT 0.0,
+        wholesale_price REAL    DEFAULT 0.0,
         quantity        REAL    NOT NULL DEFAULT 0.0,
         unit            TEXT    NOT NULL DEFAULT 'قطعة',
+        currency_id     INTEGER REFERENCES currencies(id),
         is_liquid       INTEGER NOT NULL DEFAULT 0,
         is_by_weight    INTEGER NOT NULL DEFAULT 0,
         low_stock_alert REAL    NOT NULL DEFAULT 5.0,
@@ -179,7 +222,20 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX idx_products_barcode ON products(barcode)');
     await db.execute('CREATE INDEX idx_products_active  ON products(is_active)');
 
-    // 3. الفواتير (رأس الفاتورة)
+    // 6. وحدات المنتجات
+    await db.execute('''
+      CREATE TABLE product_units (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id        INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+        unit_name         TEXT    NOT NULL,
+        conversion_factor REAL    NOT NULL DEFAULT 1.0,
+        is_purchase_unit  INTEGER NOT NULL DEFAULT 0,
+        is_sale_unit      INTEGER NOT NULL DEFAULT 0,
+        price_markup      REAL    NOT NULL DEFAULT 0.0
+      )
+    ''');
+
+    // 7. الفواتير
     await db.execute('''
       CREATE TABLE sales (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -197,9 +253,8 @@ class DatabaseHelper {
       )
     ''');
     await db.execute('CREATE INDEX idx_sales_date   ON sales(created_at)');
-    await db.execute('CREATE INDEX idx_sales_method ON sales(payment_method)');
 
-    // 4. تفاصيل الفاتورة
+    // 8. تفاصيل الفاتورة
     await db.execute('''
       CREATE TABLE sale_items (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -213,9 +268,8 @@ class DatabaseHelper {
         total         REAL    NOT NULL
       )
     ''');
-    await db.execute('CREATE INDEX idx_sale_items_sale ON sale_items(sale_id)');
 
-    // 5. المصروفات
+    // 9. المصروفات
     await db.execute('''
       CREATE TABLE expenses (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -225,9 +279,8 @@ class DatabaseHelper {
         created_at  TEXT    NOT NULL
       )
     ''');
-    await db.execute('CREATE INDEX idx_expenses_date ON expenses(created_at)');
 
-    // 6. الديون
+    // 10. الديون
     await db.execute('''
       CREATE TABLE debts (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -247,10 +300,8 @@ class DatabaseHelper {
         updated_at      TEXT    NOT NULL
       )
     ''');
-    await db.execute('CREATE INDEX idx_debts_type   ON debts(type, status)');
-    await db.execute('CREATE INDEX idx_debts_status ON debts(status)');
 
-    // 7. سداد الديون الجزئي
+    // 11. سداد الديون
     await db.execute('''
       CREATE TABLE debt_payments (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -260,90 +311,21 @@ class DatabaseHelper {
         created_at  TEXT    NOT NULL
       )
     ''');
-    await db.execute('CREATE INDEX idx_debt_payments_debt ON debt_payments(debt_id)');
 
-    // 8. سجل حركات المخزون
-    await db.execute('''
-      CREATE TABLE stock_movements (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        product_id    INTEGER NOT NULL REFERENCES products(id),
-        type          TEXT    NOT NULL,
-        quantity      REAL    NOT NULL,
-        reference_id  INTEGER,
-        notes         TEXT,
-        created_at    TEXT    NOT NULL
-      )
-    ''');
-    await db.execute('CREATE INDEX idx_stock_product ON stock_movements(product_id)');
-
-    // 9. الموردين
-    await db.execute('''
-      CREATE TABLE suppliers (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        name            TEXT    NOT NULL,
-        phone           TEXT,
-        address         TEXT,
-        current_balance REAL    NOT NULL DEFAULT 0.0,
-        notes           TEXT,
-        created_at      TEXT    NOT NULL,
-        updated_at      TEXT    NOT NULL
-      )
-    ''');
-
-    // 10. العملاء
-    await db.execute('''
-      CREATE TABLE customers (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        name            TEXT    NOT NULL,
-        phone           TEXT,
-        address         TEXT,
-        current_balance REAL    NOT NULL DEFAULT 0.0,
-        notes           TEXT,
-        created_at      TEXT    NOT NULL,
-        updated_at      TEXT    NOT NULL
-      )
-    ''');
-
-    // 11. حركة الصندوق
+    // 12. حركة الصندوق
     await db.execute('''
       CREATE TABLE cash_transactions (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        type            TEXT    NOT NULL, -- 'in', 'out'
+        type            TEXT    NOT NULL,
         amount          REAL    NOT NULL,
-        reference_type  TEXT, -- 'sale', 'purchase', 'expense', 'debt_payment'
+        reference_type  TEXT,
         reference_id    INTEGER,
         notes           TEXT,
         created_at      TEXT    NOT NULL
       )
     ''');
-    await db.execute('''
-      CREATE TABLE stock_movements (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        product_id    INTEGER NOT NULL REFERENCES products(id),
-        type          TEXT    NOT NULL,
-        quantity      REAL    NOT NULL,
-        reference_id  INTEGER,
-        notes         TEXT,
-        created_at    TEXT    NOT NULL
-      )
-    ''');
-    await db.execute('CREATE INDEX idx_stock_product ON stock_movements(product_id)');
 
-    // 9. الموردين
-    await db.execute('''
-      CREATE TABLE suppliers (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        name            TEXT    NOT NULL,
-        phone           TEXT,
-        address         TEXT,
-        current_balance REAL    NOT NULL DEFAULT 0.0,
-        notes           TEXT,
-        created_at      TEXT    NOT NULL,
-        updated_at      TEXT    NOT NULL
-      )
-    ''');
-
-    // 10. فواتير المشتريات
+    // 13. المشتريات
     await db.execute('''
       CREATE TABLE purchases (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -357,7 +339,7 @@ class DatabaseHelper {
       )
     ''');
 
-    // 11. أصناف المشتريات
+    // 14. أصناف المشتريات
     await db.execute('''
       CREATE TABLE purchase_items (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -366,20 +348,42 @@ class DatabaseHelper {
         product_name  TEXT    NOT NULL,
         buy_price     REAL    NOT NULL,
         quantity      REAL    NOT NULL,
+        stock_qty     REAL    NOT NULL DEFAULT 1.0,
         unit          TEXT    NOT NULL,
         total         REAL    NOT NULL
       )
     ''');
 
-    // بيانات الإعدادات الافتراضية
+    // 15. سجل حركات المخزون
+    await db.execute('''
+      CREATE TABLE stock_movements (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id    INTEGER NOT NULL REFERENCES products(id),
+        type          TEXT    NOT NULL,
+        quantity      REAL    NOT NULL,
+        reference_id  INTEGER,
+        notes         TEXT,
+        created_at    TEXT    NOT NULL
+      )
+    ''');
+
+    // بيانات افتراضية
+    final now = DateTime.now().toIso8601String();
+    
+    // إعدادات المتجر
     await db.insert('store_settings', {
       'store_name': 'متجري',
       'owner_name': 'صاحب المتجر',
       'currency': 'ر.ي',
       'tax_rate': 0.0,
-      'created_at': DateTime.now().toIso8601String(),
-      'updated_at': DateTime.now().toIso8601String(),
+      'created_at': now,
+      'updated_at': now,
     });
+
+    // العملات الافتراضية
+    await db.insert('currencies', {'code': 'YER', 'name': 'ريال يمني', 'exchange_rate': 1.0, 'symbol': 'ر.ي', 'is_default': 1, 'updated_at': now});
+    await db.insert('currencies', {'code': 'SAR', 'name': 'ريال سعودي', 'exchange_rate': 148.0, 'symbol': 'ر.س', 'is_default': 0, 'updated_at': now});
+    await db.insert('currencies', {'code': 'USD', 'name': 'دولار أمريكي', 'exchange_rate': 530.0, 'symbol': '\$', 'is_default': 0, 'updated_at': now});
   }
 
   // ─────────────────────────────────────────────
