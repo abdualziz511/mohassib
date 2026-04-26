@@ -12,7 +12,6 @@ class CurrencySettingsScreen extends StatelessWidget {
       body: Consumer<CurrencyProvider>(
         builder: (context, prov, _) {
           if (prov.isLoading) return const Center(child: CircularProgressIndicator());
-          
           return ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: prov.currencies.length,
