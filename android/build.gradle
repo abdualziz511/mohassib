@@ -1,0 +1,37 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = "../build"
+subprojects {
+    project.layout.buildDirectory.value(rootProject.layout.buildDirectory.dir(project.name).get())
+}
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+// حل مشكلة MissingPropertyException 'android' في بعض الإضافات بطريقة متوافقة مع Gradle 8
+subprojects {
+    def configureNamespace = { p ->
+        if (p.hasProperty('android')) {
+            p.android {
+                if (namespace == null) {
+                    namespace = p.group
+                }
+            }
+        }
+    }
+
+    if (project.state.executed) {
+        configureNamespace(project)
+    } else {
+        project.afterEvaluate { configureNamespace(it) }
+    }
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
