@@ -8,6 +8,7 @@ class CurrencySettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+    
       appBar: AppBar(title: const Text('إعدادات العملات والصرف')),
       body: Consumer<CurrencyProvider>(
         builder: (context, prov, _) {
