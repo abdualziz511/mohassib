@@ -47,7 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Form(
           key: _formKey,
           child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            _label('اسم المتجرررررر / الشركة'),
+            _label('اسم المتجر / الشركة'),
             _field(_nameCtrl, 'مثال: سوبر ماركت البركة', Icons.store),
             const SizedBox(height: 20),
             Row(children: [
