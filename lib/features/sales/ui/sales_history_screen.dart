@@ -32,7 +32,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF111116),
       appBar: AppBar(
-        title: const Text('سجل ', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('سجل المبيعات', style: TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
