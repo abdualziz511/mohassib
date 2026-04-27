@@ -1,17 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' as intl;
+import 'package:provider/provider.dart';
 import '../../../core/database/database_helper.dart';
 import '../../../core/utils/pdf_service.dart';
-import 'package:provider/provider.dart';
-import '../../customers/provider/customer_provider.dart';
-import '../../suppliers/provider/supplier_provider.dart';
-import '../../home/home_provider.dart';
 import '../../debts/models/debt_model.dart';
+import '../../home/home_provider.dart';
 
 class PersonStatementScreen extends StatefulWidget {
   final String personName;
-  final String type; // 'receivable' or 'payable'
-
+  final String type; // 'receivable' | 'payable'
   const PersonStatementScreen({super.key, required this.personName, required this.type});
 
   @override
@@ -19,275 +16,307 @@ class PersonStatementScreen extends StatefulWidget {
 }
 
 class _PersonStatementScreenState extends State<PersonStatementScreen> {
-  final DatabaseHelper _db = DatabaseHelper.instance;
+  final _db = DatabaseHelper.instance;
   List<Map<String, dynamic>> _statement = [];
   bool _isLoading = true;
-  double _totalDebt = 0.0;
-  double _totalPaid = 0.0;
+  double _totalDebt = 0;
+  double _totalPaid = 0;
+  int? _linkedId; // customer_id أو supplier_id
 
   @override
   void initState() {
     super.initState();
-    _loadStatement();
+    _load();
   }
 
-  Future<void> _loadStatement() async {
+  Future<void> _load() async {
+    setState(() => _isLoading = true);
     final data = await _db.getPersonStatement(widget.personName, widget.type);
-    
-    double tDebt = 0;
-    double tPaid = 0;
-    
-    for (var r in data) {
+
+    double td = 0, tp = 0;
+    for (final r in data) {
       final amt = (r['amount'] as num).toDouble();
-      if (r['record_type'] == 'debt') {
-        tDebt += amt;
-      } else {
-        tPaid += amt;
-      }
+      if (r['record_type'] == 'debt') td += amt;
+      else tp += amt;
     }
+
+    // جلب الـ id المرتبط
+    final dp = context.read<DebtProvider>();
+    _linkedId = dp.getLinkedId(widget.personName, widget.type);
 
     setState(() {
       _statement = data;
-      _totalDebt = tDebt;
-      _totalPaid = tPaid;
+      _totalDebt = td;
+      _totalPaid = tp;
       _isLoading = false;
     });
   }
 
-  String _formatDate(String iso) {
+  double get _remaining => (_totalDebt - _totalPaid).clamp(0, double.infinity);
+  bool get _isReceivable => widget.type == 'receivable';
+
+  String _fmt(String iso) {
     try {
-      final d = DateTime.parse(iso);
-      return intl.DateFormat('yyyy/MM/dd hh:mm a', 'en').format(d);
+      return intl.DateFormat('dd/MM/yyyy hh:mm a', 'en').format(DateTime.parse(iso));
     } catch (_) { return iso; }
   }
 
   @override
   Widget build(BuildContext context) {
-    final remaining = _totalDebt - _totalPaid;
-    final isReceivable = widget.type == 'receivable';
-
     return Scaffold(
       backgroundColor: const Color(0xFF111116),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1A24),
-        title: Text('كشف حساب: ${widget.personName}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        title: Text('كشف: ${widget.personName}',
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         centerTitle: true,
         actions: [
           IconButton(
-            icon: const Icon(Icons.share, color: Colors.white),
-            onPressed: () {
-              if (_statement.isEmpty) return;
-              final hp = context.read<HomeProvider>();
-              PdfService.generateStatementPdf(widget.personName, _totalDebt, _totalPaid, _totalDebt - _totalPaid, _statement, hp.storeName, hp.ownerName, true);
-            },
+            icon: const Icon(Icons.share),
+            tooltip: 'مشاركة PDF',
+            onPressed: _statement.isEmpty ? null : () => _exportPdf(share: true),
           ),
           IconButton(
-            icon: const Icon(Icons.print, color: Colors.white),
-            onPressed: () {
-              if (_statement.isEmpty) return;
-              final hp = context.read<HomeProvider>();
-              PdfService.generateStatementPdf(widget.personName, _totalDebt, _totalPaid, _totalDebt - _totalPaid, _statement, hp.storeName, hp.ownerName, false);
-            },
+            icon: const Icon(Icons.print),
+            tooltip: 'طباعة',
+            onPressed: _statement.isEmpty ? null : () => _exportPdf(share: false),
           ),
         ],
       ),
-      body: _isLoading 
-        ? const Center(child: CircularProgressIndicator(color: Colors.cyan))
-        : Column(
-            children: [
-              // Summary Cards
-              Container(
-                margin: const EdgeInsets.all(16),
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: isReceivable 
-                      ? [Colors.teal.shade900, Colors.teal.shade700]
-                      : [Colors.red.shade900, Colors.red.shade700],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(color: (isReceivable ? Colors.teal : Colors.red).withOpacity(0.3), blurRadius: 15, offset: const Offset(0, 5))
-                  ]
-                ),
-                child: Column(
-                  children: [
-                    const Text('الرصيد المتبقي (الإجمالي)', style: TextStyle(color: Colors.white70, fontSize: 14)),
-                    const SizedBox(height: 8),
-                    Text('${remaining.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 20),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _summaryItem('إجمالي الديون', _totalDebt, Icons.account_balance_wallet, Colors.orangeAccent),
-                        Container(width: 1, height: 40, color: Colors.white24),
-                        _summaryItem('إجمالي المسدد', _totalPaid, Icons.check_circle, Colors.greenAccent),
-                      ],
-                    )
-                  ],
-                ),
-              ),
-
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Colors.cyan))
+          : Column(children: [
+              _summaryCard(),
               const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: Text('سجل العمليات', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))
-                ),
-              ),
-
-              Expanded(
-                child: _statement.isEmpty
-                  ? const Center(child: Text('لا توجد حركات مسجلة', style: TextStyle(color: Colors.white54)))
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Align(alignment: Alignment.centerRight,
+                  child: Text('سجل الحركات', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)))),
+              _statement.isEmpty
+                  ? const Expanded(child: Center(
+                      child: Text('لا توجد حركات مسجلة', style: TextStyle(color: Colors.white38, fontSize: 16))))
+                  : Expanded(child: ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
                       itemCount: _statement.length,
-                      itemBuilder: (ctx, i) {
-                        final item = _statement[i];
-                        final isDebt = item['record_type'] == 'debt';
-                        final amount = (item['amount'] as num).toDouble();
-                        
-                        Color iconColor;
-                        IconData iconData;
-                        String title;
-                        
-                        if (isReceivable) {
-                          iconColor = isDebt ? Colors.orangeAccent : Colors.greenAccent;
-                          iconData = isDebt ? Icons.shopping_bag_outlined : Icons.payments_outlined;
-                          title = isDebt ? 'أخذ بضاعة (دين)' : 'سداد دفعة لك';
-                        } else {
-                          iconColor = isDebt ? Colors.redAccent : Colors.greenAccent;
-                          iconData = isDebt ? Icons.inventory_2_outlined : Icons.payments_outlined;
-                          title = isDebt ? 'أخذت بضاعة (دين عليك)' : 'سداد دفعة للمورد';
-                        }
-                        
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1A1A24),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: iconColor.withOpacity(0.3))
-                          ),
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                backgroundColor: iconColor.withOpacity(0.1),
-                                child: Icon(iconData, color: iconColor, size: 20),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-                                    const SizedBox(height: 4),
-                                    Text(_formatDate(item['created_at']), style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                                    if (item['notes'] != null && item['notes'].toString().isNotEmpty)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: Text(item['notes'], style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                                      )
-                                  ],
-                                ),
-                              ),
-                              Text('${amount.toStringAsFixed(0)} ر.ي', style: TextStyle(color: iconColor, fontWeight: FontWeight.bold, fontSize: 16)),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-              ),
-            ],
-          ),
-      floatingActionButton: remaining > 0 ? FloatingActionButton.extended(
-        backgroundColor: Colors.cyan,
-        icon: const Icon(Icons.payments, color: Colors.white),
-        label: const Text('سداد الدفتر', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        onPressed: () => _showPayAllDialog(context, remaining, isReceivable),
-      ) : null,
+                      itemBuilder: (_, i) => _statementRow(_statement[i], i),
+                    )),
+            ]),
+      floatingActionButton: _remaining > 0
+          ? FloatingActionButton.extended(
+              backgroundColor: Colors.greenAccent,
+              foregroundColor: Colors.black,
+              icon: const Icon(Icons.payments),
+              label: const Text('سداد الدفتر', style: TextStyle(fontWeight: FontWeight.bold)),
+              onPressed: () => _showPayAllDialog(),
+            )
+          : FloatingActionButton.extended(
+              backgroundColor: Colors.green.shade800,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.check_circle),
+              label: const Text('الحساب مسدّد بالكامل', style: TextStyle(fontWeight: FontWeight.bold)),
+              onPressed: null,
+            ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
-  void _showPayAllDialog(BuildContext context, double remaining, bool isReceivable) {
-    final amtCtrl = TextEditingController(text: remaining.toStringAsFixed(0));
-    final notesCtrl = TextEditingController(text: isReceivable ? 'سداد دفعة من الحساب' : 'سداد دفعة للمورد');
+  Widget _summaryCard() {
+    final color = _isReceivable ? Colors.teal : Colors.red;
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [color.shade900, color.shade700],
+          begin: Alignment.topLeft, end: Alignment.bottomRight),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: color.withOpacity(0.3), blurRadius: 15, offset: const Offset(0, 5))]),
+      child: Column(children: [
+        Text(_isReceivable ? 'مدين لك' : 'دين عليك',
+          style: const TextStyle(color: Colors.white70, fontSize: 13)),
+        const SizedBox(height: 8),
+        Text('${_remaining.toStringAsFixed(0)} ر.ي',
+          style: const TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.bold)),
+        if (_remaining <= 0)
+          Container(
+            margin: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.green.withOpacity(0.3), borderRadius: BorderRadius.circular(20)),
+            child: const Text('✅ الحساب مسدّد بالكامل',
+              style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold))),
+        const SizedBox(height: 16),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          _summaryItem('إجمالي المسدد', _totalPaid, Icons.check_circle, Colors.greenAccent),
+          Container(width: 1, height: 40, color: Colors.white24),
+          _summaryItem('إجمالي الديون', _totalDebt, Icons.account_balance_wallet, Colors.orangeAccent),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _summaryItem(String label, double amt, IconData icon, Color color) => Row(children: [
+    Icon(icon, color: color, size: 20),
+    const SizedBox(width: 8),
+    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+      Text('${amt.toStringAsFixed(0)} ر.ي',
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+    ]),
+  ]);
+
+  Widget _statementRow(Map<String, dynamic> item, int index) {
+    final isDebt = item['record_type'] == 'debt';
+    final amount = (item['amount'] as num).toDouble();
+    final notes = item['notes']?.toString() ?? '';
+
+    Color color;
+    IconData icon;
+    String label;
+
+    if (_isReceivable) {
+      color = isDebt ? Colors.orangeAccent : Colors.greenAccent;
+      icon  = isDebt ? Icons.shopping_bag_outlined : Icons.payments_outlined;
+      label = isDebt ? 'بيع آجل (دين)' : 'سداد استُلم';
+    } else {
+      color = isDebt ? Colors.redAccent : Colors.greenAccent;
+      icon  = isDebt ? Icons.inventory_2_outlined : Icons.payments_outlined;
+      label = isDebt ? 'شراء آجل (دين عليك)' : 'دفعة سُدِّدت';
+    }
+
+    // حساب الرصيد المتراكم حتى هذا السطر
+    double balance = 0;
+    for (int i = 0; i <= index; i++) {
+      final r = _statement[i];
+      final a = (r['amount'] as num).toDouble();
+      if (r['record_type'] == 'debt') balance += a;
+      else balance -= a;
+    }
+    balance = balance.clamp(0, double.infinity);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A24),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withOpacity(0.25))),
+      child: Row(children: [
+        // رصيد متراكم
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('الرصيد', style: TextStyle(color: Colors.grey, fontSize: 9)),
+          Text('${balance.toStringAsFixed(0)}',
+            style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold)),
+        ]),
+        const SizedBox(width: 12),
+        // المبلغ
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8)),
+          child: Text(
+            '${isDebt ? "+" : "-"}${amount.toStringAsFixed(0)} ر.ي',
+            style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14))),
+        const SizedBox(width: 12),
+        // التفاصيل
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+            Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13)),
+            const SizedBox(width: 8),
+            CircleAvatar(backgroundColor: color.withOpacity(0.15), radius: 14,
+              child: Icon(icon, color: color, size: 14)),
+          ]),
+          if (notes.isNotEmpty)
+            Text(notes, style: const TextStyle(color: Colors.white54, fontSize: 11),
+              textDirection: TextDirection.rtl),
+          Text(_fmt(item['created_at']),
+            style: const TextStyle(color: Colors.grey, fontSize: 10)),
+        ])),
+      ]),
+    );
+  }
+
+  void _showPayAllDialog() {
+    final amtCtrl = TextEditingController(text: _remaining.toStringAsFixed(0));
+    final notesCtrl = TextEditingController(
+      text: _isReceivable ? 'استلام كامل الحساب' : 'سداد كامل الحساب');
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E2A),
-        title: Text('تسديد حساب: ${widget.personName}', style: const TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('الرصيد المتبقي: $remaining ر.ي', style: const TextStyle(color: Colors.orangeAccent)),
-            const SizedBox(height: 16),
-            TextField(
-              controller: amtCtrl,
-              keyboardType: TextInputType.number,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(labelText: 'المبلغ المدفوع', labelStyle: const TextStyle(color: Colors.grey), filled: true, fillColor: const Color(0xFF111116), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: notesCtrl,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(labelText: 'ملاحظات', labelStyle: const TextStyle(color: Colors.grey), filled: true, fillColor: const Color(0xFF111116), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)),
-            ),
-          ],
-        ),
+        title: Text('سداد حساب: ${widget.personName}',
+          style: const TextStyle(color: Colors.white), textDirection: TextDirection.rtl),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.orangeAccent.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10)),
+            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              Text('${_remaining.toStringAsFixed(0)} ر.ي',
+                style: const TextStyle(color: Colors.orangeAccent, fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text('الرصيد المتبقي:', style: TextStyle(color: Colors.white70)),
+            ])),
+          const SizedBox(height: 16),
+          _payField(amtCtrl, 'المبلغ المدفوع', TextInputType.number),
+          const SizedBox(height: 8),
+          _payField(notesCtrl, 'البيان', TextInputType.text),
+        ]),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء', style: TextStyle(color: Colors.grey))),
+          TextButton(onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء', style: TextStyle(color: Colors.grey))),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.greenAccent),
             onPressed: () async {
-              final amt = double.tryParse(amtCtrl.text);
-              if (amt != null && amt > 0) {
-                if (isReceivable) {
-                  final cp = context.read<CustomerProvider>();
-                  final cust = cp.customers.where((c) => c.name == widget.personName).toList();
-                  if (cust.isNotEmpty && cust.first.id != null) {
-                    await cp.payDebtBulk(cust.first.id!, amt, notesCtrl.text);
-                  }
-                } else {
-                  final sp = context.read<SupplierProvider>();
-                  final sup = sp.suppliers.where((s) => s.name == widget.personName).toList();
-                  if (sup.isNotEmpty && sup.first.id != null) {
-                    await sp.payDebtBulk(sup.first.id!, amt, notesCtrl.text);
-                  }
-                }
-                if (ctx.mounted) {
-                  context.read<HomeProvider>().refresh();
-                  context.read<DebtProvider>().loadAll();
-                  Navigator.pop(ctx);
-                  _loadStatement();
-                }
+              final amt = double.tryParse(amtCtrl.text) ?? 0;
+              if (amt <= 0 || amt > _remaining) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('المبلغ غير صحيح'),
+                    backgroundColor: Colors.red));
+                return;
+              }
+
+              Navigator.pop(ctx);
+
+              final dp = context.read<DebtProvider>();
+              final ok = await dp.payAllForPerson(
+                personName: widget.personName,
+                type: widget.type,
+                amount: amt,
+                notes: notesCtrl.text.trim().isEmpty ? 'سداد' : notesCtrl.text.trim(),
+                customerId: _isReceivable ? _linkedId : null,
+                supplierId: !_isReceivable ? _linkedId : null,
+              );
+
+              if (mounted) {
+                context.read<HomeProvider>().refresh();
+                _load(); // تحديث الكشف
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text(ok ? '✅ تم السداد وتحديث الرصيد' : '❌ فشل السداد',
+                    textDirection: TextDirection.rtl),
+                  backgroundColor: ok ? Colors.green : Colors.red));
               }
             },
-            child: const Text('سداد وتحديث الكشف', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
+            child: const Text('سداد وتحديث الكشف',
+              style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold))),
+        ]));
   }
 
-  Widget _summaryItem(String title, double amount, IconData icon, Color color) {
-    return Row(
-      children: [
-        Icon(icon, color: color, size: 24),
-        const SizedBox(width: 8),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-            Text('${amount.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-          ],
-        )
-      ],
-    );
+  Widget _payField(TextEditingController c, String hint, TextInputType type) => TextField(
+    controller: c, keyboardType: type, textAlign: TextAlign.right,
+    style: const TextStyle(color: Colors.white),
+    decoration: InputDecoration(
+      hintText: hint, hintStyle: const TextStyle(color: Colors.grey),
+      filled: true, fillColor: const Color(0xFF111116),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)));
+
+  Future<void> _exportPdf({required bool share}) async {
+    final hp = context.read<HomeProvider>();
+    await PdfService.generateStatementPdf(
+      widget.personName, _totalDebt, _totalPaid,
+      _totalDebt - _totalPaid, _statement,
+      hp.storeName, hp.ownerName, share);
   }
 }

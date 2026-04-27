@@ -8,6 +8,8 @@ import 'package:mohassib/features/products/provider/product_provider.dart';
 import 'package:mohassib/features/sales/models/sales_models.dart';
 import 'package:mohassib/features/customers/provider/customer_provider.dart';
 import 'package:mohassib/core/utils/pdf_service.dart';
+import 'package:mohassib/features/debts/models/debt_model.dart';
+import 'package:mohassib/features/home/home_provider.dart';
 
 class POSScreen extends StatefulWidget {
   const POSScreen({super.key});
@@ -47,92 +49,104 @@ class _POSScreenState extends State<POSScreen> {
   Widget _appBar(BuildContext context, CartProvider cart) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      Row(children: [
-        _iconBtn(Icons.fullscreen, Colors.grey),
-        const SizedBox(width: 12),
-        PopupMenuButton<int>(
-          onSelected: (idx) => cart.switchSession(idx),
-          offset: const Offset(0, 40),
-          itemBuilder: (ctx) => List.generate(5, (i) {
-            final session = cart.sessions[i];
-            final isCurrent = cart.currentSessionIndex == i;
-            return PopupMenuItem(
-              value: i,
-              child: Row(children: [
-                if (isCurrent) const Icon(Icons.check_circle, color: Colors.blueAccent, size: 16),
-                const SizedBox(width: 8),
-                Text('السلة ${i + 1}', style: TextStyle(color: isCurrent ? Colors.blueAccent : Colors.white, fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal)),
-                const Spacer(),
-                if (session.items.isNotEmpty) Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
-                  child: Text('${session.items.length}', style: const TextStyle(color: Colors.blueAccent, fontSize: 10)),
-                ),
-              ]),
-            );
-          }),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.15), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.blueAccent.withOpacity(0.3))),
-            child: Row(children: [
-              const Icon(Icons.arrow_drop_down, color: Colors.blueAccent, size: 18),
-              const SizedBox(width: 4),
-              Text('السلة ${cart.currentSessionIndex + 1}', style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
-              if (cart.itemCount > 0) ...[
-                const SizedBox(width: 8),
-                CircleAvatar(radius: 10, backgroundColor: Colors.blueAccent, child: Text('${cart.itemCount}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold))),
-              ],
-            ]),
+      Expanded(
+        child: Row(children: [
+          _iconBtn(Icons.fullscreen, Colors.grey),
+          const SizedBox(width: 8),
+          Flexible(
+            child: PopupMenuButton<int>(
+              onSelected: (idx) => cart.switchSession(idx),
+              offset: const Offset(0, 40),
+              itemBuilder: (ctx) => List.generate(5, (i) {
+                final session = cart.sessions[i];
+                final isCurrent = cart.currentSessionIndex == i;
+                return PopupMenuItem(
+                  value: i,
+                  child: Row(children: [
+                    if (isCurrent) const Icon(Icons.check_circle, color: Colors.blueAccent, size: 16),
+                    const SizedBox(width: 8),
+                    Text('السلة ${i + 1}', style: TextStyle(color: isCurrent ? Colors.blueAccent : Colors.white, fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal)),
+                    const Spacer(),
+                    if (session.items.isNotEmpty) Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+                      child: Text('${session.items.length}', style: const TextStyle(color: Colors.blueAccent, fontSize: 10)),
+                    ),
+                  ]),
+                );
+              }),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.15), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.blueAccent.withOpacity(0.3))),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.arrow_drop_down, color: Colors.blueAccent, size: 18),
+                  const SizedBox(width: 4),
+                  Flexible(child: FittedBox(child: Text('السلة ${cart.currentSessionIndex + 1}', style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)))),
+                  if (cart.itemCount > 0) ...[
+                    const SizedBox(width: 4),
+                    CircleAvatar(radius: 9, backgroundColor: Colors.blueAccent, child: Text('${cart.itemCount}', style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold))),
+                  ],
+                ]),
+              ),
+            ),
           ),
-        ),
-      ]),
-      const Text('نقطة البيع', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-      InkWell(onTap: () => Navigator.pop(context), child: const Icon(Icons.history, color: Colors.blueAccent, size: 24)),
+        ]),
+      ),
+      const SizedBox(width: 8),
+      const FittedBox(child: Text('نقطة البيع', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15))),
+      const SizedBox(width: 8),
+      InkWell(onTap: () => Navigator.pop(context), child: const Icon(Icons.history, color: Colors.blueAccent, size: 22)),
     ]),
   );
 
   Widget _cartHeader(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      InkWell(
-        onTap: () => _showGallery(context),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(color: const Color(0xFF1E2433), borderRadius: BorderRadius.circular(16)),
-          child: const Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.add, color: Colors.blueAccent, size: 18),
-          ]),
-        ),
-      ),
-      InkWell(
-        onTap: () async {
-          if (!_scanMode) {
-            final status = await Permission.camera.request();
-            if (!status.isGranted) {
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('يجب السماح بالوصول للكاميرا للمسح', textDirection: TextDirection.rtl), backgroundColor: Colors.orange)
-                );
-              }
-              return;
-            }
-          }
-          setState(() => _scanMode = !_scanMode);
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: _scanMode ? Colors.blueAccent : const Color(0xFF1E2433),
-            borderRadius: BorderRadius.circular(16),
+      Expanded(
+        child: Row(children: [
+          InkWell(
+            onTap: () => _showGallery(context),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(color: const Color(0xFF1E2433), borderRadius: BorderRadius.circular(16)),
+              child: const Icon(Icons.add, color: Colors.blueAccent, size: 18),
+            ),
           ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Text(_scanMode ? 'إيقاف المسح' : 'مسح باركود', style: TextStyle(color: _scanMode ? Colors.white : Colors.blueAccent, fontWeight: FontWeight.bold)),
-            const SizedBox(width: 8),
-            Icon(Icons.qr_code_scanner, color: _scanMode ? Colors.white : Colors.blueAccent, size: 18),
-          ]),
-        ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: InkWell(
+              onTap: () async {
+                if (!_scanMode) {
+                  final status = await Permission.camera.request();
+                  if (!status.isGranted) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('يجب السماح بالوصول للكاميرا للمسح', textDirection: TextDirection.rtl), backgroundColor: Colors.orange)
+                      );
+                    }
+                    return;
+                  }
+                }
+                setState(() => _scanMode = !_scanMode);
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: _scanMode ? Colors.blueAccent : const Color(0xFF1E2433),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
+                  Flexible(child: FittedBox(child: Text(_scanMode ? 'إيقاف المسح' : 'مسح باركود', style: TextStyle(color: _scanMode ? Colors.white : Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 12)))),
+                  const SizedBox(width: 4),
+                  Icon(Icons.qr_code_scanner, color: _scanMode ? Colors.white : Colors.blueAccent, size: 16),
+                ]),
+              ),
+            ),
+          ),
+        ]),
       ),
-      const Text('سلة المشتريات', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+      const SizedBox(width: 12),
+      const FittedBox(child: Text('سلة المشتريات', style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold))),
     ]),
   );
 
@@ -245,28 +259,36 @@ class _POSScreenState extends State<POSScreen> {
       padding: const EdgeInsets.all(16),
       decoration: const BoxDecoration(color: Color(0xFF1A1A24), borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       child: SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        if (cart.discount > 0) Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text('${cart.discount.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-          const Text('خصم:', style: TextStyle(color: Colors.grey)),
-        ]),
-        if (cart.taxAmount > 0) Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text('${cart.taxAmount.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
-          const Text('ضريبة:', style: TextStyle(color: Colors.grey)),
-        ]),
+        if (cart.discount > 0 || cart.taxAmount > 0) 
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8.0),
+            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              if (cart.taxAmount > 0) Row(children: [
+                Text('${cart.taxAmount.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12)),
+                const Text(' :ضريبة', style: TextStyle(color: Colors.grey, fontSize: 11)),
+              ]),
+              if (cart.discount > 0) Row(children: [
+                Text('${cart.discount.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+                const Text(' :خصم', style: TextStyle(color: Colors.grey, fontSize: 11)),
+              ]),
+            ]),
+          ),
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Expanded(child: ElevatedButton(
             onPressed: () => _showPayment(context, cart),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-            child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(Icons.check_circle, color: Colors.white),
-              SizedBox(width: 8),
-              Text('إتمام البيع', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-            ]),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+            child: const FittedBox(
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.check_circle, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Text('إتمام البيع', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              ]),
+            ),
           )),
-          const SizedBox(width: 24),
+          const SizedBox(width: 16),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text('${cart.itemCount} صنف', style: const TextStyle(color: Colors.grey, fontSize: 11)),
-            Text('${cart.total.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+            Text('${cart.itemCount} صنف', style: const TextStyle(color: Colors.grey, fontSize: 10)),
+            FittedBox(child: Text('${cart.total.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))),
           ]),
         ]),
       ])),
@@ -574,6 +596,11 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     if (!mounted) return;
     Navigator.pop(context); // close payment sheet
     if (saleId != null) {
+      // تحديث قائمة العملاء والديون والتقارير لضمان مزامنة البيانات
+      context.read<CustomerProvider>().loadAll();
+      context.read<DebtProvider>().loadAll();
+      context.read<HomeProvider>().refresh();
+
       final sale = SaleModel(
         id: saleId,
         saleNumber: saleId,

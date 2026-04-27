@@ -547,20 +547,42 @@ class DatabaseHelper {
 
       // إنشاء دين تلقائي وتحديث رصيد العميل إذا كان البيع آجل
       if (paymentMethod == 'debt' && (customerName != null || customerId != null)) {
-        if (customerId != null) {
+        int? finalCustomerId = customerId;
+        String finalName = customerName ?? 'عميل غير محدد';
+
+        // إذا لم يكن هناك ID ولكن يوجد اسم، ابحث عن العميل أولاً لتجنب التكرار
+        if (finalCustomerId == null && customerName != null) {
+          final existing = await txn.query('customers', 
+            where: 'name = ?', whereArgs: [customerName.trim()], limit: 1);
+          
+          if (existing.isNotEmpty) {
+            finalCustomerId = existing.first['id'] as int;
+          } else {
+            // إنشاء عميل جديد
+            finalCustomerId = await txn.insert('customers', {
+              'name': customerName.trim(),
+              'phone': customerPhone,
+              'current_balance': 0.0, // سيتم تحديثه في الخطوة التالية
+              'created_at': now,
+              'updated_at': now,
+            });
+          }
+        }
+
+        if (finalCustomerId != null) {
           await txn.rawUpdate('''
             UPDATE customers 
             SET current_balance = current_balance + ?, 
                 updated_at = ?
             WHERE id = ?
-          ''', [totalAmount, now, customerId]);
+          ''', [totalAmount, now, finalCustomerId]);
         }
 
         await txn.insert('debts', {
           'type': 'receivable',
-          'person_name': customerName ?? 'عميل غير محدد',
+          'person_name': finalName,
           'phone': customerPhone,
-          'customer_id': customerId,
+          'customer_id': finalCustomerId,
           'amount': totalAmount,
           'paid_amount': 0.0,
           'status': 'pending',
@@ -962,10 +984,11 @@ class DatabaseHelper {
     final profit   = (profitResult.first['profit'] as num?)?.toDouble() ?? 0;
 
     return {
-      'sales': sales,
-      'expenses': expenses,
-      'profit': profit - expenses,
-      'net_profit': profit - expenses,
+      'sales':        sales,
+      'expenses':     expenses,
+      'gross_profit': profit,               // ربح المبيعات فقط
+      'profit':       profit - expenses,    // صافي (legacy key)
+      'net_profit':   profit - expenses,    // صافي الربح بعد المصروفات
       'count': (salesResult.first['count'] as int?)?.toDouble() ?? 0,
     };
   }

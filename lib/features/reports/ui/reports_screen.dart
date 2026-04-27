@@ -15,13 +15,15 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
 
   // اليوم
   double todaySales = 0;
-  double todayProfit = 0;
+  double todayGrossProfit = 0;
+  double todayProfit = 0; // Net
   double todayExpenses = 0;
   int todayCount = 0;
 
   // الشهر
   double monthSales = 0;
-  double monthProfit = 0;
+  double monthGrossProfit = 0;
+  double monthProfit = 0; // Net
   double monthExpenses = 0;
   int monthCount = 0;
 
@@ -64,10 +66,11 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
 
     // ── اليوم ──
     final todayStats = await db.getDailyStats(today);
-    todaySales    = todayStats['sales'] ?? 0;
-    todayProfit   = todayStats['profit'] ?? 0;
-    todayExpenses = todayStats['expenses'] ?? 0;
-    todayCount    = (todayStats['count'] ?? 0).toInt();
+    todaySales       = todayStats['sales'] ?? 0;
+    todayGrossProfit = todayStats['gross_profit'] ?? 0;
+    todayProfit      = todayStats['net_profit'] ?? 0;
+    todayExpenses    = todayStats['expenses'] ?? 0;
+    todayCount       = (todayStats['count'] ?? 0).toInt();
 
     // ── الشهر ──
     final mSales = await raw.rawQuery('''
@@ -83,10 +86,11 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
       FROM sale_items si JOIN sales s ON s.id=si.sale_id
       WHERE s.created_at LIKE '$monthStart%' AND s.status='completed'
     ''');
-    monthSales    = (mSales.first['total']  as num?)?.toDouble() ?? 0;
-    monthCount    = (mSales.first['cnt']    as int?) ?? 0;
-    monthExpenses = (mExp.first['total']    as num?)?.toDouble() ?? 0;
-    monthProfit   = ((mProfit.first['profit'] as num?)?.toDouble() ?? 0) - monthExpenses;
+    monthSales       = (mSales.first['total']  as num?)?.toDouble() ?? 0;
+    monthCount       = (mSales.first['cnt']    as int?) ?? 0;
+    monthExpenses    = (mExp.first['total']    as num?)?.toDouble() ?? 0;
+    monthGrossProfit = (mProfit.first['profit'] as num?)?.toDouble() ?? 0;
+    monthProfit      = monthGrossProfit - monthExpenses;
 
     // ── المخزون ──
     final inv = await raw.rawQuery('''
@@ -186,13 +190,13 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           Row(children: [
             _statCard('المبيعات', fmt.format(todaySales), 'ر.ي', Colors.blueAccent, Icons.point_of_sale, isDark),
             const SizedBox(width: 8),
-            _statCard('الربح', fmt.format(todayProfit), 'ر.ي', Colors.greenAccent, Icons.trending_up, isDark),
+            _statCard('ربح المبيعات', fmt.format(todayGrossProfit), 'ر.ي', Colors.orangeAccent, Icons.trending_up, isDark),
           ]),
           const SizedBox(height: 8),
           Row(children: [
             _statCard('المصروفات', fmt.format(todayExpenses), 'ر.ي', Colors.redAccent, Icons.money_off, isDark),
             const SizedBox(width: 8),
-            _statCard('عدد الفواتير', fmt.format(todayCount), 'فاتورة', Colors.orangeAccent, Icons.receipt_long, isDark),
+            _statCard('صافي الربح', fmt.format(todayProfit), 'ر.ي', Colors.greenAccent, Icons.account_balance, isDark),
           ]),
           const SizedBox(height: 24),
           _sectionTitle('هذا الشهر', Icons.calendar_month, Colors.purpleAccent),
@@ -200,13 +204,13 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           Row(children: [
             _statCard('إجمالي المبيعات', fmt.format(monthSales), 'ر.ي', Colors.blueAccent, Icons.bar_chart, isDark),
             const SizedBox(width: 8),
-            _statCard('صافي الربح', fmt.format(monthProfit), 'ر.ي', Colors.greenAccent, Icons.account_balance, isDark),
+            _statCard('ربح المبيعات', fmt.format(monthGrossProfit), 'ر.ي', Colors.orangeAccent, Icons.trending_up, isDark),
           ]),
           const SizedBox(height: 8),
           Row(children: [
             _statCard('المصروفات', fmt.format(monthExpenses), 'ر.ي', Colors.redAccent, Icons.receipt, isDark),
             const SizedBox(width: 8),
-            _statCard('عدد الفواتير', fmt.format(monthCount), 'فاتورة', Colors.orangeAccent, Icons.list_alt, isDark),
+            _statCard('صافي الربح', fmt.format(monthProfit), 'ر.ي', Colors.greenAccent, Icons.account_balance, isDark),
           ]),
           const SizedBox(height: 24),
           if (topProducts.isNotEmpty) ...[
@@ -313,7 +317,9 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
             Text(label, style: TextStyle(color: isDark ? Colors.grey : Colors.black54, fontSize: 11)),
           ]),
           const SizedBox(height: 12),
-          Text(value, style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 18, fontWeight: FontWeight.bold)),
+          FittedBox(
+            child: Text(value, style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 18, fontWeight: FontWeight.bold)),
+          ),
           Text(unit, style: TextStyle(color: color, fontSize: 10)),
         ]),
       ),

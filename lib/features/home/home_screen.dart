@@ -316,6 +316,15 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               _summaryItem('المصروفات', hp.todayExpenses, Colors.redAccent, isDark, titleColor, cardColor),
               const SizedBox(width: 12),
+              _summaryItem('ربح المبيعات', hp.todayGrossProfit, Colors.orangeAccent, isDark, titleColor, cardColor),
+            ]
+          ),
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          child: Row(
+            children: [
               _summaryItem('المبيعات', hp.todaySales, Colors.blueAccent, isDark, titleColor, cardColor),
             ]
           ),
@@ -343,11 +352,11 @@ class _HomeScreenState extends State<HomeScreen> {
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(color: innerColor, borderRadius: BorderRadius.circular(16)),
     child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-      _smallStat('الربح', hp.todayProfit, Colors.greenAccent, isDark, titleColor),
+      _smallStat('الصافي', hp.todayProfit, Colors.greenAccent, isDark, titleColor),
       _vDiv(isDark),
       _smallStat('المصروفات', hp.todayExpenses, Colors.redAccent, isDark, titleColor),
       _vDiv(isDark),
-      _smallStat('المبيعات', hp.todaySales, Colors.blueAccent, isDark, titleColor),
+      _smallStat('ربح المبيعات', hp.todayGrossProfit, Colors.orangeAccent, isDark, titleColor),
     ]),
   );
 
@@ -387,8 +396,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildQuickActions(BuildContext context, bool isDark) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: GridView.count(
+        crossAxisCount: 4,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
         children: [
           _buildActionButton('إضافة منتج', Icons.add_box, Colors.tealAccent.shade400, isDark, () {
              showModalBottomSheet(context: context, backgroundColor: Colors.transparent, isScrollControlled: true, 
@@ -414,14 +427,17 @@ class _HomeScreenState extends State<HomeScreen> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 70, height: 70,
-            decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(20), border: isDark ? Border.all(color: color.withOpacity(0.3)) : null),
-            child: Icon(icon, color: color, size: 28),
+          Expanded(
+            child: Container(
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(20), border: isDark ? Border.all(color: color.withOpacity(0.3)) : null),
+              child: Icon(icon, color: color, size: 24),
+            ),
           ),
-          const SizedBox(height: 8),
-          Text(title, style: TextStyle(color: isDark ? Colors.white70 : Colors.black54, fontSize: 11)),
+          const SizedBox(height: 4),
+          FittedBox(child: Text(title, style: TextStyle(color: isDark ? Colors.white70 : Colors.black54, fontSize: 10))),
         ],
       ),
     );
@@ -554,35 +570,17 @@ class _AddExpenseQuickSheetState extends State<_AddExpenseQuickSheet> {
   );
 }
 
-class _AddDebtQuickSheet extends StatefulWidget {
+class _AddDebtQuickSheet extends StatelessWidget {
   final DebtProvider dp;
   const _AddDebtQuickSheet({required this.dp});
   @override
-  State<_AddDebtQuickSheet> createState() => _AddDebtQuickSheetState();
-}
-class _AddDebtQuickSheetState extends State<_AddDebtQuickSheet> {
-  final _name = TextEditingController();
-  final _amt = TextEditingController();
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(context).viewInsets.bottom + 20),
-    decoration: const BoxDecoration(color: Color(0xFF1E1E2A), borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-    child: Column(mainAxisSize: MainAxisSize.min, children: [
-      const Text('إضافة دين سريع', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-      const SizedBox(height: 16),
-      TextField(controller: _name, textAlign: TextAlign.right, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(hintText: 'الاسم', hintStyle: TextStyle(color: Colors.grey))),
-      TextField(controller: _amt, textAlign: TextAlign.right, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(hintText: 'المبلغ', hintStyle: TextStyle(color: Colors.grey))),
-      const SizedBox(height: 16),
-      ElevatedButton(onPressed: () async {
-        final val = double.tryParse(_amt.text) ?? 0;
-        if (val > 0 && _name.text.isNotEmpty) {
-          await widget.dp.addDebt(type: 'receivable', personName: _name.text, amount: val);
-          if (mounted) {
-            context.read<HomeProvider>().refresh();
-            Navigator.pop(context);
-          }
-        }
-      }, style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent, minimumSize: const Size(double.infinity, 50)), child: const Text('حفظ', style: TextStyle(color: Colors.white))),
-    ]),
-  );
+  Widget build(BuildContext context) {
+    // نعيد توجيه المستخدم مباشرةً إلى الشاشة الكاملة للديون
+    // حتى يستفيد من البحث الذكي واقتراح الأشخاص
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Navigator.pop(context);
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const DebtsScreen()));
+    });
+    return const SizedBox.shrink();
+  }
 }

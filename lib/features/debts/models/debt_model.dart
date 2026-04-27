@@ -331,8 +331,18 @@ class DebtProvider extends ChangeNotifier {
       final needed = debtAmt - paid;
       final pay = remaining >= needed ? needed : remaining;
 
-      await db.insert('debt_payments',
+      final paymentId = await db.insert('debt_payments',
           {'debt_id': debtId, 'amount': pay, 'notes': notes, 'created_at': now});
+
+      // سجل الحركة في الصندوق
+      await db.insert('cash_transactions', {
+        'type': type == 'receivable' ? 'in' : 'out',
+        'amount': pay,
+        'reference_type': 'debt_payment',
+        'reference_id': paymentId,
+        'notes': 'سداد دفعة (بالاسم) - $personName',
+        'created_at': now,
+      });
 
       final newPaid = paid + pay;
       final status = newPaid >= debtAmt ? 'paid' : 'partial';

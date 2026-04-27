@@ -9,10 +9,11 @@ class HomeProvider extends ChangeNotifier {
   final DatabaseHelper _db = DatabaseHelper.instance;
 
   // اليوم
-  double todaySales    = 0;
-  double todayExpenses = 0;
-  double todayProfit   = 0;
-  double todayCount    = 0;
+  double todaySales        = 0;
+  double todayExpenses     = 0;
+  double todayGrossProfit  = 0; // ربح المبيعات قبل المصروفات
+  double todayProfit       = 0; // صافي الربح = ربح المبيعات - المصروفات
+  double todayCount        = 0;
 
   // الديون
   double totalReceivable = 0;
@@ -47,10 +48,11 @@ class HomeProvider extends ChangeNotifier {
     final salesRows = results[2] as List<Map<String, dynamic>>;
     final settings = results[3] as Map<String, dynamic>?;
 
-    todaySales    = stats['sales']    ?? 0;
-    todayExpenses = stats['expenses'] ?? 0;
-    todayProfit   = stats['profit']   ?? 0;
-    todayCount    = stats['count']    ?? 0;
+    todaySales        = stats['sales']         ?? 0;
+    todayExpenses     = stats['expenses']      ?? 0;
+    todayGrossProfit  = stats['gross_profit']  ?? 0;
+    todayProfit       = stats['net_profit']    ?? 0;
+    todayCount        = stats['count']         ?? 0;
 
     totalReceivable = debts['receivable'] ?? 0;
     totalPayable    = debts['payable']    ?? 0;

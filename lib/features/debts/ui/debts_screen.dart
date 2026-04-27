@@ -5,6 +5,8 @@ import 'package:mohassib/features/home/home_provider.dart';
 import 'package:mohassib/features/debts/ui/person_statement_screen.dart';
 import 'package:mohassib/features/customers/models/customer_model.dart';
 import 'package:mohassib/features/suppliers/models/supplier_model.dart';
+import 'package:mohassib/features/customers/provider/customer_provider.dart';
+import 'package:mohassib/features/suppliers/provider/supplier_provider.dart';
 
 class DebtsScreen extends StatefulWidget {
   const DebtsScreen({super.key});
@@ -83,22 +85,22 @@ class _DebtsScreenState extends State<DebtsScreen> {
       Expanded(child: GestureDetector(
         onTap: () => setState(() => _showReceivable = false),
         child: AnimatedContainer(duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             color: !_showReceivable ? Colors.redAccent : const Color(0xFF1A1A24),
             borderRadius: BorderRadius.circular(12)),
-          child: Center(child: Text('الالتزامات (علي)',
-            style: TextStyle(color: !_showReceivable ? Colors.white : Colors.white70, fontWeight: FontWeight.bold)))))),
+          child: Center(child: FittedBox(child: Text('الالتزامات (علي)',
+            style: TextStyle(color: !_showReceivable ? Colors.white : Colors.white70, fontWeight: FontWeight.bold, fontSize: 13))))))),
       const SizedBox(width: 8),
       Expanded(child: GestureDetector(
         onTap: () => setState(() => _showReceivable = true),
         child: AnimatedContainer(duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             color: _showReceivable ? Colors.greenAccent : const Color(0xFF1A1A24),
             borderRadius: BorderRadius.circular(12)),
-          child: Center(child: Text('الديون (لي)',
-            style: TextStyle(color: _showReceivable ? Colors.black : Colors.white70, fontWeight: FontWeight.bold)))))),
+          child: Center(child: FittedBox(child: Text('الديون (لي)',
+            style: TextStyle(color: _showReceivable ? Colors.black : Colors.white70, fontWeight: FontWeight.bold, fontSize: 13))))))),
     ]),
   );
 
@@ -146,18 +148,24 @@ class _DebtsScreenState extends State<DebtsScreen> {
                 icon: const Icon(Icons.receipt_long, color: Colors.blueAccent, size: 20),
                 constraints: const BoxConstraints(), padding: EdgeInsets.zero),
             ]),
-            const Spacer(),
-            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Row(mainAxisSize: MainAxisSize.min, children: [
-                Text(d.personName,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-                const SizedBox(width: 8),
-                if (d.isLinked)
-                  const Icon(Icons.link, color: Colors.cyanAccent, size: 14),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (d.isLinked)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4.0),
+                      child: Icon(Icons.link, color: Colors.cyanAccent.withOpacity(0.7), size: 12),
+                    ),
+                  Flexible(
+                    child: Text(d.personName,
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                  ),
+                ]),
+                if (d.phone != null && d.phone!.isNotEmpty)
+                  Text(d.phone!, style: const TextStyle(color: Colors.grey, fontSize: 11)),
               ]),
-              if (d.phone != null && d.phone!.isNotEmpty)
-                Text(d.phone!, style: const TextStyle(color: Colors.grey, fontSize: 11)),
-            ]),
+            ),
             const SizedBox(width: 12),
             CircleAvatar(
               backgroundColor: d.statusColor.withOpacity(0.15), radius: 22,
@@ -225,7 +233,15 @@ class _DebtsScreenState extends State<DebtsScreen> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء', style: TextStyle(color: Colors.grey))),
         TextButton(
-          onPressed: () { dp.deleteDebt(d); Navigator.pop(ctx); },
+          onPressed: () async {
+            final ok = await dp.deleteDebt(d);
+            if (ok && ctx.mounted) {
+              context.read<CustomerProvider>().loadAll();
+              context.read<SupplierProvider>().loadAll();
+              context.read<HomeProvider>().refresh();
+            }
+            if (ctx.mounted) Navigator.pop(ctx);
+          },
           child: const Text('حذف', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
       ]));
 
@@ -250,9 +266,11 @@ class _DebtsScreenState extends State<DebtsScreen> {
           onPressed: () async {
             final amt = double.tryParse(ctrl.text) ?? 0;
             if (amt > 0 && amt <= d.remaining) {
-              await dp.addPayment(d.id!, amt, notes: notesCtrl.text.isEmpty ? null : notesCtrl.text);
-              if (ctx.mounted) {
-                ctx.read<HomeProvider>().refresh();
+              final ok = await dp.addPayment(d.id!, amt, notes: notesCtrl.text.isEmpty ? null : notesCtrl.text);
+              if (ok && ctx.mounted) {
+                context.read<CustomerProvider>().loadAll();
+                context.read<SupplierProvider>().loadAll();
+                context.read<HomeProvider>().refresh();
                 Navigator.pop(ctx);
               }
             }
@@ -364,6 +382,12 @@ class _AddDebtSheetState extends State<_AddDebtSheet> {
       existingSupplierId: _selectedSupplier?.id,
       createNewPerson: isNew,
     );
+
+    if (ok && mounted) {
+      // تحديث قائمة العملاء والموردين لضمان ظهور الشخص الجديد فوراً في شاشاتهم
+      context.read<CustomerProvider>().loadAll();
+      context.read<SupplierProvider>().loadAll();
+    }
 
     widget.onSaved?.call();
     if (mounted) Navigator.pop(context);
