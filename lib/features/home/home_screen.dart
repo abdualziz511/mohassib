@@ -16,6 +16,7 @@ import 'package:mohassib/features/settings/ui/settings_screen.dart';
 import 'package:mohassib/features/purchases/ui/purchases_screen.dart';
 import 'package:mohassib/features/suppliers/ui/suppliers_screen.dart';
 import 'package:mohassib/features/customers/ui/customers_screen.dart';
+import 'package:mohassib/features/reports/ui/reports_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -470,7 +471,10 @@ class _HomeScreenState extends State<HomeScreen> {
           Text(hp.storeName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
         ])),
         Expanded(child: ListView(padding: const EdgeInsets.symmetric(horizontal: 16), children: [
-          _drawerItem('الإحصائيات', Icons.insights, Colors.cyan),
+          _drawerItem('الإحصائيات والتقارير', Icons.insights, Colors.cyan, onTap: () {
+             Navigator.pop(context);
+             Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen()));
+          }),
           _drawerItem('سجل المبيعات', Icons.history, Colors.blue, onTap: () {
              Navigator.pop(context);
              Navigator.push(context, MaterialPageRoute(builder: (_) => const SalesHistoryScreen()));

@@ -25,7 +25,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final s = await DatabaseHelper.instance.getStoreSettings();
     if (s != null) {
-      _nameCtrl.text = s['name'] ?? '';
+      _nameCtrl.text = s['store_name'] ?? '';
       _taxCtrl.text = (s['tax_rate'] ?? 0).toString();
       _currencyCtrl.text = s['currency'] ?? 'ر.ي';
     }
