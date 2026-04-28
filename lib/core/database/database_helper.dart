@@ -15,7 +15,26 @@ class DatabaseHelper {
 
   Future<Database> _initDatabase() async {
     final path = join(await getDatabasesPath(), 'mohassib_v3.db');
-    return await openDatabase(
+    return await (String path,
+        {int? version,
+        OnDatabaseConfigureFn? onConfigure,
+        OnDatabaseCreateFn? onCreate,
+        OnDatabaseVersionChangeFn? onUpgrade,
+        OnDatabaseVersionChangeFn? onDowngrade,
+        OnDatabaseOpenFn? onOpen,
+        bool? readOnly = false,
+        bool? singleInstance = true}) {
+      final options = OpenDatabaseOptions(
+          version: version,
+          onConfigure: onConfigure,
+          onCreate: onCreate,
+          onUpgrade: onUpgrade,
+          onDowngrade: onDowngrade,
+          onOpen: onOpen,
+          readOnly: readOnly,
+          singleInstance: singleInstance);
+      return databaseFactory.openDatabase(path, options: options);
+    }(
       path,
       version: 4,
       onCreate: _onCreate,
