@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../products/provider/product_provider.dart';
 import '../../suppliers/provider/supplier_provider.dart';
 import '../provider/purchase_provider.dart';
@@ -115,8 +117,15 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
           prefixIcon: const Icon(Icons.search),
           suffixIcon: IconButton(
             icon: const Icon(Icons.qr_code_scanner),
-            onPressed: () {
-              // TODO: Implement scanner
+            onPressed: () async {
+              final status = await Permission.camera.request();
+              if (!status.isGranted) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('يجب السماح بالوصول للكاميرا للمسح', textDirection: TextDirection.rtl), backgroundColor: Colors.orange));
+                }
+                return;
+              }
+              _openScanner(prodProv);
             },
           ),
           border: const UnderlineInputBorder(),
@@ -143,6 +152,47 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
           Icon(Icons.shopping_cart_outlined, size: 80, color: Colors.grey.withOpacity(0.5)),
           const SizedBox(height: 16),
           const Text('الفاتورة فارغة، ابدأ بإضافة أصناف', style: TextStyle(color: Colors.grey)),
+        ],
+      ),
+    );
+  }
+
+  void _openScanner(ProductProvider prodProv) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('مسح الباركود', textAlign: TextAlign.right),
+        content: SizedBox(
+          width: 300,
+          height: 300,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: MobileScanner(
+              onDetect: (capture) async {
+                final barcodes = capture.barcodes;
+                if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+                  final code = barcodes.first.rawValue!;
+                  Navigator.pop(ctx);
+                  _searchCtrl.text = code;
+                  prodProv.searchProducts(code);
+                  final p = await prodProv.getByBarcode(code);
+                  if (p != null) {
+                    if (mounted) _showAddProductDialog(p);
+                    _searchCtrl.clear();
+                  } else {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('المنتج غير موجود!', textDirection: TextDirection.rtl), backgroundColor: Colors.red),
+                      );
+                    }
+                  }
+                }
+              },
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
         ],
       ),
     );
@@ -211,12 +261,12 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
                     label: const Text('حفظ الفاتورة', style: TextStyle(fontSize: 18)),
                     onPressed: pProv.isProcessing || pProv.cartItems.isEmpty || pProv.invoiceNumber.isEmpty
                         ? null 
-                        : () async {
-                            final ok = await pProv.savePurchase(prodProv);
-                            if (ok) {
-                              _invoiceCtrl.clear();
-                              _paidCtrl.clear();
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حفظ الفاتورة بنجاح')));
+                        : () {
+                            if (pProv.selectedSupplierId != null) {
+                              _showPaymentDialog(pProv, prodProv);
+                            } else {
+                              pProv.setPaymentMethod('cash');
+                              _processPurchase(pProv, prodProv);
                             }
                           },
                   ),
@@ -227,6 +277,87 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
         ),
       ),
     );
+  }
+
+  void _showPaymentDialog(PurchaseProvider pProv, ProductProvider prodProv) {
+    pProv.setPaidAmount(pProv.totalAmount);
+    pProv.setPaymentMethod('cash');
+    final paidCtrl = TextEditingController(text: pProv.totalAmount.toStringAsFixed(0));
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('تفاصيل الدفع', textAlign: TextAlign.right),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                RadioListTile<String>(
+                  title: const Text('دفع كامل الفاتورة'),
+                  value: 'cash',
+                  groupValue: pProv.paymentMethod,
+                  onChanged: (val) {
+                    setDialogState(() {
+                      pProv.setPaymentMethod('cash');
+                      paidCtrl.text = pProv.totalAmount.toStringAsFixed(0);
+                    });
+                  },
+                ),
+                RadioListTile<String>(
+                  title: const Text('دفع جزء من الفاتورة (آجل)'),
+                  value: 'partial',
+                  groupValue: pProv.paymentMethod,
+                  onChanged: (val) {
+                    setDialogState(() {
+                      pProv.setPaymentMethod('partial');
+                      paidCtrl.text = '0';
+                      pProv.setPaidAmount(0);
+                    });
+                  },
+                ),
+                if (pProv.paymentMethod == 'partial') ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: paidCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'المبلغ المدفوع الآن'),
+                    textAlign: TextAlign.center,
+                    onChanged: (val) {
+                      final amt = double.tryParse(val) ?? 0;
+                      setDialogState(() {
+                        pProv.setPaidAmount(amt);
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Text('المتبقي للمورد: ${(pProv.totalAmount - pProv.paidAmount).toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.red)),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _processPurchase(pProv, prodProv);
+                },
+                child: const Text('تأكيد وحفظ'),
+              ),
+            ],
+          );
+        }
+      ),
+    );
+  }
+
+  Future<void> _processPurchase(PurchaseProvider pProv, ProductProvider prodProv) async {
+    final ok = await pProv.savePurchase(prodProv);
+    if (ok) {
+      _invoiceCtrl.clear();
+      _paidCtrl.clear();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حفظ الفاتورة بنجاح')));
+    }
   }
 
   void _showAddProductDialog(ProductModel p) {
