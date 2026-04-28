@@ -9,6 +9,7 @@ class ProductModel {
   final double wholesalePrice; // سعر الجملة بالريال اليمني
   final double quantity;      // الكمية بالوحدة الأساسية (الأصغر)
   final String unit;          // اسم الوحدة الأساسية
+  final String category;      // تصنيف المنتج
   final int? currencyId;      // معرف عملة الشراء
   final bool isLiquid;
   final bool isByWeight;
@@ -26,6 +27,7 @@ class ProductModel {
     this.wholesalePrice = 0.0,
     required this.quantity,
     this.unit = 'قطعة',
+    this.category = 'عام',
     this.currencyId,
     this.isLiquid = false,
     this.isByWeight = false,
@@ -59,6 +61,7 @@ class ProductModel {
     'wholesale_price': wholesalePrice,
     'quantity': quantity,
     'unit': unit,
+    'category': category,
     'currency_id': currencyId,
     'is_liquid': isLiquid ? 1 : 0,
     'is_by_weight': isByWeight ? 1 : 0,
@@ -76,6 +79,7 @@ class ProductModel {
     wholesalePrice: (m['wholesale_price'] as num?)?.toDouble() ?? 0.0,
     quantity: (m['quantity'] as num).toDouble(),
     unit: m['unit'] as String? ?? 'قطعة',
+    category: m['category'] as String? ?? 'عام',
     currencyId: m['currency_id'] as int?,
     isLiquid: (m['is_liquid'] as int?) == 1,
     isByWeight: (m['is_by_weight'] as int?) == 1,
@@ -88,7 +92,7 @@ class ProductModel {
   ProductModel copyWith({
     int? id, String? name, String? barcode,
     double? buyPrice, double? sellPrice, double? wholesalePrice,
-    double? quantity, String? unit, int? currencyId,
+    double? quantity, String? unit, String? category, int? currencyId,
     bool? isLiquid, bool? isByWeight, double? lowStockAlert,
     String? imagePath, bool? isActive, List<ProductUnitModel>? units,
   }) => ProductModel(
@@ -100,6 +104,7 @@ class ProductModel {
     wholesalePrice: wholesalePrice ?? this.wholesalePrice,
     quantity: quantity ?? this.quantity,
     unit: unit ?? this.unit,
+    category: category ?? this.category,
     currencyId: currencyId ?? this.currencyId,
     isLiquid: isLiquid ?? this.isLiquid,
     isByWeight: isByWeight ?? this.isByWeight,

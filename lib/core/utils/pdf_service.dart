@@ -208,4 +208,56 @@ class PdfService {
       );
     }
   }
+
+  static Future<void> generateBarcodeLabels({
+    required List<Map<String, dynamic>> items, // Each item: {name, barcode, price, qty}
+    bool showPrice = true,
+  }) async {
+    final pdf = pw.Document();
+    final font = await PdfGoogleFonts.tajawalMedium();
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: const PdfPageFormat(38 * PdfPageFormat.mm, 25 * PdfPageFormat.mm, marginAll: 2 * PdfPageFormat.mm),
+        build: (pw.Context context) {
+          List<pw.Widget> widgets = [];
+          for (var item in items) {
+            final qty = item['qty'] as int;
+            for (int i = 0; i < qty; i++) {
+              widgets.add(
+                pw.Container(
+                  width: 34 * PdfPageFormat.mm,
+                  height: 21 * PdfPageFormat.mm,
+                  padding: const pw.EdgeInsets.all(1),
+                  child: pw.Column(
+                    mainAxisAlignment: pw.MainAxisAlignment.center,
+                    children: [
+                      pw.Text(item['name'], style: pw.TextStyle(font: font, fontSize: 7, fontWeight: pw.FontWeight.bold), maxLines: 1, overflow: pw.TextOverflow.clip, textDirection: pw.TextDirection.rtl),
+                      pw.SizedBox(height: 1),
+                      pw.BarcodeWidget(
+                        barcode: pw.Barcode.code128(),
+                        data: item['barcode'],
+                        width: 30 * PdfPageFormat.mm,
+                        height: 10 * PdfPageFormat.mm,
+                        drawText: true,
+                        textStyle: pw.TextStyle(font: font, fontSize: 6),
+                      ),
+                      if (showPrice)
+                        pw.Text('السعر: ${item['price']} ر.ي', style: pw.TextStyle(font: font, fontSize: 7, fontWeight: pw.FontWeight.bold), textDirection: pw.TextDirection.rtl),
+                    ],
+                  ),
+                ),
+              );
+            }
+          }
+          return widgets;
+        },
+      ),
+    );
+
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdf.save(),
+      name: 'ملصقات_باركود.pdf',
+    );
+  }
 }

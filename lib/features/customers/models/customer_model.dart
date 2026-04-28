@@ -40,4 +40,26 @@ class CustomerModel {
     'created_at': createdAt,
     'updated_at': updatedAt,
   };
+
+  CustomerModel copyWith({
+    int? id,
+    String? name,
+    String? phone,
+    String? address,
+    double? currentBalance,
+    String? notes,
+    String? createdAt,
+    String? updatedAt,
+  }) {
+    return CustomerModel(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      phone: phone ?? this.phone,
+      address: address ?? this.address,
+      currentBalance: currentBalance ?? this.currentBalance,
+      notes: notes ?? this.notes,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
 }

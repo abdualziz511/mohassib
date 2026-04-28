@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:fl_chart/fl_chart.dart';
 import '../../../core/database/database_helper.dart';
 
 class ReportsScreen extends StatefulWidget {
@@ -12,6 +13,7 @@ class ReportsScreen extends StatefulWidget {
 class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabCtrl;
   bool isLoading = true;
+  DateTimeRange? _selectedDateRange;
 
   // اليوم
   double todaySales = 0;
@@ -43,6 +45,9 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   // توزيع المصروفات
   List<Map<String, dynamic>> expensesByCategory = [];
 
+  // بيانات الرسم البياني (7 أيام)
+  List<Map<String, dynamic>> dailyChartData = [];
+
   @override
   void initState() {
     super.initState();
@@ -63,6 +68,16 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
 
     final today = DateTime.now().toIso8601String().substring(0, 10);
     final monthStart = DateTime.now().toIso8601String().substring(0, 7); // YYYY-MM
+    
+    String dCondSales = _selectedDateRange != null 
+        ? "created_at >= '${_selectedDateRange!.start.toIso8601String().substring(0,10)}' AND created_at < '${_selectedDateRange!.end.add(const Duration(days: 1)).toIso8601String().substring(0,10)}'" 
+        : "created_at LIKE '$monthStart%'";
+    String dCondSalesAlias = _selectedDateRange != null 
+        ? "s.created_at >= '${_selectedDateRange!.start.toIso8601String().substring(0,10)}' AND s.created_at < '${_selectedDateRange!.end.add(const Duration(days: 1)).toIso8601String().substring(0,10)}'" 
+        : "s.created_at LIKE '$monthStart%'";
+    String dCondExp = _selectedDateRange != null 
+        ? "created_at >= '${_selectedDateRange!.start.toIso8601String().substring(0,10)}' AND created_at < '${_selectedDateRange!.end.add(const Duration(days: 1)).toIso8601String().substring(0,10)}'" 
+        : "created_at LIKE '$monthStart%'";
 
     // ── اليوم ──
     final todayStats = await db.getDailyStats(today);
@@ -72,19 +87,19 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
     todayExpenses    = todayStats['expenses'] ?? 0;
     todayCount       = (todayStats['count'] ?? 0).toInt();
 
-    // ── الشهر ──
+    // ── الشهر / مخصص ──
     final mSales = await raw.rawQuery('''
       SELECT COALESCE(SUM(total_amount),0) as total, COUNT(*) as cnt
-      FROM sales WHERE created_at LIKE '$monthStart%' AND status='completed'
+      FROM sales WHERE $dCondSales AND status='completed'
     ''');
     final mExp = await raw.rawQuery('''
       SELECT COALESCE(SUM(amount),0) as total
-      FROM expenses WHERE created_at LIKE '$monthStart%'
+      FROM expenses WHERE $dCondExp
     ''');
     final mProfit = await raw.rawQuery('''
       SELECT COALESCE(SUM((si.sell_price - si.buy_price)*si.quantity),0) as profit
       FROM sale_items si JOIN sales s ON s.id=si.sale_id
-      WHERE s.created_at LIKE '$monthStart%' AND s.status='completed'
+      WHERE $dCondSalesAlias AND s.status='completed'
     ''');
     monthSales       = (mSales.first['total']  as num?)?.toDouble() ?? 0;
     monthCount       = (mSales.first['cnt']    as int?) ?? 0;
@@ -117,7 +132,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
              SUM(si.total) as total_revenue
       FROM sale_items si
       JOIN sales s ON s.id=si.sale_id
-      WHERE s.created_at LIKE '$monthStart%'
+      WHERE $dCondSalesAlias
       GROUP BY si.product_name
       ORDER BY total_revenue DESC
       LIMIT 5
@@ -126,10 +141,13 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
     // ── المصروفات حسب الفئة ──
     expensesByCategory = await raw.rawQuery('''
       SELECT category, COALESCE(SUM(amount),0) as total
-      FROM expenses WHERE created_at LIKE '$monthStart%'
+      FROM expenses WHERE $dCondExp
       GROUP BY category
       ORDER BY total DESC
     ''');
+
+    // ── الرسم البياني: المبيعات اليومية لآخر 7 أيام ──
+    dailyChartData = await db.getDailySalesChart(days: 7);
 
     setState(() => isLoading = false);
   }
@@ -147,6 +165,31 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
         title: const Text('التقارير والإحصائيات', style: TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.date_range, color: Colors.blueAccent),
+            onPressed: () async {
+              final picked = await showDateRangePicker(
+                context: context,
+                firstDate: DateTime(2020),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+                initialDateRange: _selectedDateRange,
+              );
+              if (picked != null) {
+                setState(() => _selectedDateRange = picked);
+                _loadAll();
+              }
+            },
+            tooltip: 'تاريخ مخصص',
+          ),
+          if (_selectedDateRange != null)
+            IconButton(
+              icon: const Icon(Icons.clear, color: Colors.redAccent),
+              onPressed: () {
+                setState(() => _selectedDateRange = null);
+                _loadAll();
+              },
+              tooltip: 'إلغاء التحديد',
+            ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadAll,
@@ -199,7 +242,16 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
             _statCard('صافي الربح', fmt.format(todayProfit), 'ر.ي', Colors.greenAccent, Icons.account_balance, isDark),
           ]),
           const SizedBox(height: 24),
-          _sectionTitle('هذا الشهر', Icons.calendar_month, Colors.purpleAccent),
+
+          // ── الرسم البياني للأيام الـ 7 الماضية ──
+          if (dailyChartData.isNotEmpty) ...[
+            _sectionTitle('المبيعات اليومية - آخر 7 أيام', Icons.bar_chart, Colors.tealAccent),
+            const SizedBox(height: 12),
+            _buildSalesChart(isDark),
+            const SizedBox(height: 24),
+          ],
+
+          _sectionTitle(_selectedDateRange != null ? 'تاريخ مخصص' : 'هذا الشهر', Icons.calendar_month, Colors.purpleAccent),
           const SizedBox(height: 8),
           Row(children: [
             _statCard('إجمالي المبيعات', fmt.format(monthSales), 'ر.ي', Colors.blueAccent, Icons.bar_chart, isDark),
@@ -214,11 +266,84 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           ]),
           const SizedBox(height: 24),
           if (topProducts.isNotEmpty) ...[
-            _sectionTitle('الأكثر مبيعاً هذا الشهر', Icons.star, Colors.amber),
+            _sectionTitle(_selectedDateRange != null ? 'الأكثر مبيعاً في الفترة' : 'الأكثر مبيعاً هذا الشهر', Icons.star, Colors.amber),
             const SizedBox(height: 8),
             _buildTopProductsList(isDark, fmt),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildSalesChart(bool isDark) {
+    final maxVal = dailyChartData.fold<double>(0, (m, d) => (d['total'] as double) > m ? d['total'] as double : m);
+    final card = isDark ? const Color(0xFF1A1A24) : Colors.white;
+    return Container(
+      height: 200,
+      padding: const EdgeInsets.fromLTRB(8, 16, 16, 8),
+      decoration: BoxDecoration(color: card, borderRadius: BorderRadius.circular(16)),
+      child: BarChart(
+        BarChartData(
+          alignment: BarChartAlignment.spaceAround,
+          maxY: maxVal > 0 ? maxVal * 1.2 : 100,
+          barTouchData: BarTouchData(
+            touchTooltipData: BarTouchTooltipData(
+              getTooltipColor: (_) => const Color(0xFF1E1E2A),
+              getTooltipItem: (group, gi, rod, ri) {
+                final d = dailyChartData[group.x];
+                return BarTooltipItem(
+                  '${d['label']}\n${NumberFormat('#,##0').format(rod.toY)} ر.ي',
+                  const TextStyle(color: Colors.white, fontSize: 11),
+                );
+              },
+            ),
+          ),
+          titlesData: FlTitlesData(
+            show: true,
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                getTitlesWidget: (val, meta) {
+                  final idx = val.toInt();
+                  if (idx < 0 || idx >= dailyChartData.length) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(dailyChartData[idx]['label'] as String,
+                        style: const TextStyle(color: Colors.grey, fontSize: 9)),
+                  );
+                },
+                reservedSize: 22,
+              ),
+            ),
+            leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          ),
+          gridData: FlGridData(
+            show: true,
+            drawVerticalLine: false,
+            getDrawingHorizontalLine: (_) => FlLine(color: Colors.white10, strokeWidth: 1),
+          ),
+          borderData: FlBorderData(show: false),
+          barGroups: dailyChartData.asMap().entries.map((e) {
+            final val = (e.value['total'] as double);
+            return BarChartGroupData(
+              x: e.key,
+              barRods: [
+                BarChartRodData(
+                  toY: val,
+                  gradient: const LinearGradient(
+                    colors: [Colors.tealAccent, Colors.blueAccent],
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                  ),
+                  width: 16,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                ),
+              ],
+            );
+          }).toList(),
+        ),
       ),
     );
   }
@@ -278,7 +403,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           ),
           const SizedBox(height: 24),
           if (expensesByCategory.isNotEmpty) ...[
-            _sectionTitle('المصروفات هذا الشهر حسب الفئة', Icons.pie_chart, Colors.redAccent),
+            _sectionTitle(_selectedDateRange != null ? 'المصروفات في الفترة حسب الفئة' : 'المصروفات هذا الشهر حسب الفئة', Icons.pie_chart, Colors.redAccent),
             const SizedBox(height: 8),
             _buildExpensesBreakdown(isDark, fmt),
           ],

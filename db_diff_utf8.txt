@@ -1,0 +1,398 @@
+﻿diff --git a/lib/core/database/database_helper.dart b/lib/core/database/database_helper.dart
+index 41e150f..2565087 100644
+--- a/lib/core/database/database_helper.dart
++++ b/lib/core/database/database_helper.dart
+@@ -36,7 +36,7 @@ class DatabaseHelper {
+       return databaseFactory.openDatabase(path, options: options);
+     }(
+       path,
+-      version: 4,
++      version: 8,
+       onCreate: _onCreate,
+       onUpgrade: _onUpgrade,
+       onConfigure: (db) async => await db.execute('PRAGMA foreign_keys = ON'),
+@@ -157,6 +157,54 @@ class DatabaseHelper {
+       try { await db.execute('ALTER TABLE sale_items ADD COLUMN stock_qty REAL NOT NULL DEFAULT 1.0'); } catch(_) {}
+       try { await db.execute('ALTER TABLE purchase_items ADD COLUMN stock_qty REAL NOT NULL DEFAULT 1.0'); } catch(_) {}
+     }
++
++    if (oldVersion < 5) {
++      // 1. ╪ح╪╢╪د┘╪ر ╪ص┘é┘ ╪ز╪╡┘┘è┘ ╪د┘┘à┘╪ز╪ش╪د╪ز
++      try { await db.execute("ALTER TABLE products ADD COLUMN category TEXT DEFAULT '╪╣╪د┘à'"); } catch(_) {}
++    }
++
++    if (oldVersion < 7) {
++      // ╪ح╪╢╪د┘╪ر ╪ش╪»╪د┘ê┘ ╪د┘┘à╪▒╪ز╪ش╪╣╪د╪ز
++      await db.execute('''
++        CREATE TABLE returns (
++          id              INTEGER PRIMARY KEY AUTOINCREMENT,
++          sale_id         INTEGER,
++          sale_number     TEXT,
++          total_amount    REAL    NOT NULL,
++          payment_method  TEXT    NOT NULL,
++          notes           TEXT,
++          created_at      TEXT    NOT NULL,
++          FOREIGN KEY (sale_id) REFERENCES sales (id) ON DELETE SET NULL
++        )
++      ''');
++      await db.execute('''
++        CREATE TABLE return_items (
++          id            INTEGER PRIMARY KEY AUTOINCREMENT,
++          return_id     INTEGER NOT NULL,
++          product_id    INTEGER NOT NULL,
++          product_name  TEXT    NOT NULL,
++          quantity      REAL    NOT NULL,
++          price         REAL    NOT NULL,
++          total         REAL    NOT NULL,
++          FOREIGN KEY (return_id) REFERENCES returns (id) ON DELETE CASCADE
++        )
++      ''');
++    if (oldVersion < 8) {
++      // ╪ح╪╢╪د┘╪ر ╪ش╪»┘ê┘ ╪ش┘╪│╪د╪ز ╪د┘╪╡┘╪»┘ê┘é
++      await db.execute('''
++        CREATE TABLE cash_sessions (
++          id                INTEGER PRIMARY KEY AUTOINCREMENT,
++          opening_balance   REAL    NOT NULL DEFAULT 0.0,
++          closing_balance   REAL,
++          actual_cash       REAL,
++          difference        REAL,
++          status            TEXT    NOT NULL DEFAULT 'open', -- 'open' or 'closed'
++          notes             TEXT,
++          opened_at         TEXT    NOT NULL,
++          closed_at         TEXT
++        )
++      ''');
++    }
+   }
+ 
+   Future<void> _onCreate(Database db, int version) async {
+@@ -228,6 +276,7 @@ class DatabaseHelper {
+         wholesale_price REAL    DEFAULT 0.0,
+         quantity        REAL    NOT NULL DEFAULT 0.0,
+         unit            TEXT    NOT NULL DEFAULT '┘é╪╖╪╣╪ر',
++        category        TEXT    DEFAULT '╪╣╪د┘à',
+         currency_id     INTEGER REFERENCES currencies(id),
+         is_liquid       INTEGER NOT NULL DEFAULT 0,
+         is_by_weight    INTEGER NOT NULL DEFAULT 0,
+@@ -414,12 +463,14 @@ class DatabaseHelper {
+     return rows.isEmpty ? null : rows.first;
+   }
+ 
+-  Future<void> updateStoreSettings({String? name, double? taxRate, String? currency}) async {
++  Future<void> updateStoreSettings({String? name, double? taxRate, String? currency, String? phone, String? address}) async {
+     final db = await database;
+     final Map<String, dynamic> data = {};
+     if (name != null) data['store_name'] = name;
+     if (taxRate != null) data['tax_rate'] = taxRate;
+     if (currency != null) data['currency'] = currency;
++    if (phone != null) data['phone'] = phone;
++    if (address != null) data['address'] = address;
+     data['updated_at'] = DateTime.now().toIso8601String();
+     await db.update('store_settings', data, where: 'id = ?', whereArgs: [1]);
+   }
+@@ -652,6 +703,72 @@ class DatabaseHelper {
+     return fullSales;
+   }
+ 
++  /// ┘┘╪ز╪▒╪ر ╪د┘┘à╪ذ┘è╪╣╪د╪ز ╪ص╪│╪ذ ┘╪╖╪د┘é ╪ز╪د╪▒┘è╪«╪î ╪╖╪▒┘è┘é╪ر ╪»┘╪╣╪î ╪ث┘ê ╪د╪│┘à ╪╣┘à┘è┘
++  Future<List<Map<String, dynamic>>> getSalesFiltered({
++    DateTime? from,
++    DateTime? to,
++    String? paymentMethod,
++    String? customerName,
++  }) async {
++    final db = await database;
++    final where = <String>[];
++    final args = <dynamic>[];
++
++    if (from != null) {
++      where.add("created_at >= ?");
++      args.add(from.toIso8601String().substring(0, 10));
++    }
++    if (to != null) {
++      where.add("created_at < ?");
++      args.add(to.add(const Duration(days: 1)).toIso8601String().substring(0, 10));
++    }
++    if (paymentMethod != null && paymentMethod != '╪د┘┘â┘') {
++      where.add("payment_method = ?");
++      args.add(paymentMethod);
++    }
++    if (customerName != null && customerName.isNotEmpty) {
++      where.add("customer_name LIKE ?");
++      args.add('%$customerName%');
++    }
++
++    final salesMaps = await db.query(
++      'sales',
++      where: where.isEmpty ? null : where.join(' AND '),
++      whereArgs: args.isEmpty ? null : args,
++      orderBy: 'created_at DESC',
++    );
++
++    List<Map<String, dynamic>> fullSales = [];
++    for (var m in salesMaps) {
++      var map = Map<String, dynamic>.from(m);
++      final items = await getSaleItems(map['id']);
++      map['items'] = items;
++      fullSales.add(map);
++    }
++    return fullSales;
++  }
++
++  /// ╪ذ┘è╪د┘╪د╪ز ╪د┘┘à╪ذ┘è╪╣╪د╪ز ╪د┘┘è┘ê┘à┘è╪ر ┘╪ت╪«╪▒ N ┘è┘ê┘à (┘┘╪▒╪│┘à ╪د┘╪ذ┘è╪د┘┘è)
++  Future<List<Map<String, dynamic>>> getDailySalesChart({int days = 7}) async {
++    final db = await database;
++    final result = <Map<String, dynamic>>[];
++    for (int i = days - 1; i >= 0; i--) {
++      final date = DateTime.now().subtract(Duration(days: i));
++      final dateStr = date.toIso8601String().substring(0, 10);
++      final rows = await db.rawQuery('''
++        SELECT COALESCE(SUM(total_amount),0) as total, COUNT(*) as cnt
++        FROM sales WHERE created_at LIKE '$dateStr%' AND status='completed'
++      ''');
++      result.add({
++        'date': dateStr,
++        'label': '${date.day}/${date.month}',
++        'total': (rows.first['total'] as num?)?.toDouble() ?? 0.0,
++        'count': (rows.first['cnt'] as int?) ?? 0,
++      });
++    }
++    return result;
++  }
++
+   // ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤
+   // EXPENSES
+   // ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤
+@@ -997,13 +1114,24 @@ class DatabaseHelper {
+   // ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤
+   Future<Map<String, double>> getDailyStats(String date) async {
+     final db = await database;
++    
++    // 1. ╪د┘┘à╪ذ┘è╪╣╪د╪ز
+     final salesResult = await db.rawQuery('''
+       SELECT COALESCE(SUM(total_amount),0) as total, COUNT(*) as count
+       FROM sales WHERE created_at LIKE '$date%' AND status = 'completed'
+     ''');
++    
++    // 2. ╪د┘┘à╪╡╪▒┘ê┘╪د╪ز
+     final expResult = await db.rawQuery('''
+       SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE created_at LIKE '$date%'
+     ''');
++    
++    // 3. ╪د┘┘à╪▒╪ز╪ش╪╣╪د╪ز
++    final returnResult = await db.rawQuery('''
++      SELECT COALESCE(SUM(total_amount),0) as total FROM returns WHERE created_at LIKE '$date%'
++    ''');
++
++    // 4. ╪▒╪ذ╪ص ╪د┘┘à╪ذ┘è╪╣╪د╪ز (╪د┘┘à╪ذ╪د╪╣ - ╪ز┘â┘┘╪ز┘ç)
+     final profitResult = await db.rawQuery('''
+       SELECT COALESCE(SUM((si.sell_price - si.buy_price) * si.quantity),0) as profit
+       FROM sale_items si
+@@ -1011,16 +1139,30 @@ class DatabaseHelper {
+       WHERE s.created_at LIKE '$date%' AND s.status = 'completed'
+     ''');
+ 
+-    final sales    = (salesResult.first['total']  as num?)?.toDouble() ?? 0;
+-    final expenses = (expResult.first['total']    as num?)?.toDouble() ?? 0;
+-    final profit   = (profitResult.first['profit'] as num?)?.toDouble() ?? 0;
++    // 5. ╪▒╪ذ╪ص ╪د┘┘à╪▒╪ز╪ش╪╣╪د╪ز (╪د┘╪▒╪ذ╪ص ╪د┘╪░┘è ╪ز┘à ╪د╪│╪ز╪▒╪ش╪د╪╣┘ç/╪«╪│╪د╪▒╪ز┘ç)
++    final returnProfitResult = await db.rawQuery('''
++      SELECT COALESCE(SUM((ri.price - p.buy_price) * ri.quantity),0) as profit
++      FROM return_items ri
++      JOIN products p ON p.id = ri.product_id
++      JOIN returns r ON r.id = ri.return_id
++      WHERE r.created_at LIKE '$date%'
++    ''');
++
++    final sales        = (salesResult.first['total']        as num?)?.toDouble() ?? 0;
++    final expenses     = (expResult.first['total']          as num?)?.toDouble() ?? 0;
++    final returns      = (returnResult.first['total']       as num?)?.toDouble() ?? 0;
++    final grossProfit  = (profitResult.first['profit']      as num?)?.toDouble() ?? 0;
++    final returnProfit = (returnProfitResult.first['profit'] as num?)?.toDouble() ?? 0;
++
++    final netSales = sales - returns;
++    final actualGrossProfit = grossProfit - returnProfit;
+ 
+     return {
+-      'sales':        sales,
++      'sales':        netSales,
+       'expenses':     expenses,
+-      'gross_profit': profit,               // ╪▒╪ذ╪ص ╪د┘┘à╪ذ┘è╪╣╪د╪ز ┘┘é╪╖
+-      'profit':       profit - expenses,    // ╪╡╪د┘┘è (legacy key)
+-      'net_profit':   profit - expenses,    // ╪╡╪د┘┘è ╪د┘╪▒╪ذ╪ص ╪ذ╪╣╪» ╪د┘┘à╪╡╪▒┘ê┘╪د╪ز
++      'returns':      returns,
++      'gross_profit': actualGrossProfit,
++      'net_profit':   actualGrossProfit - expenses,
+       'count': (salesResult.first['count'] as int?)?.toDouble() ?? 0,
+     };
+   }
+@@ -1183,6 +1325,169 @@ class DatabaseHelper {
+     ''');
+   }
+ 
++  // ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤
++  // RETURNS
++  // ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤
++  Future<int> processReturn({
++    required int saleId,
++    required String saleNumber,
++    required List<Map<String, dynamic>> items,
++    required double totalAmount,
++    required String paymentMethod,
++    String? notes,
++  }) async {
++    final db = await database;
++    int returnId = 0;
++
++    await db.transaction((txn) async {
++      final now = DateTime.now().toIso8601String();
++
++      // 1. ╪ح╪»╪▒╪د╪ش ╪▒╪ث╪│ ╪د┘┘à╪▒╪ز╪ش╪╣
++      returnId = await txn.insert('returns', {
++        'sale_id': saleId,
++        'sale_number': saleNumber,
++        'total_amount': totalAmount,
++        'payment_method': paymentMethod,
++        'notes': notes,
++        'created_at': now,
++      });
++
++      // 2. ╪ح╪»╪▒╪د╪ش ╪د┘╪ث╪╡┘╪د┘ ╪د┘┘à╪▒╪ز╪ش╪╣╪ر ┘ê╪ز╪ص╪»┘è╪س ╪د┘┘à╪«╪▓┘ê┘
++      for (final item in items) {
++        await txn.insert('return_items', {
++          'return_id': returnId,
++          'product_id': item['product_id'],
++          'product_name': item['product_name'],
++          'quantity': item['quantity'],
++          'price': item['price'],
++          'total': item['total'],
++        });
++
++        // ╪▓┘è╪د╪»╪ر ╪د┘┘à╪«╪▓┘ê┘ ┘à╪ش╪»╪»╪د┘ï
++        await txn.rawUpdate('''
++          UPDATE products SET quantity = quantity + ?, updated_at = ?
++          WHERE id = ?
++        ''', [item['quantity'], now, item['product_id']]);
++
++        // ╪│╪ش┘ ╪ص╪▒┘â╪ر ╪د┘┘à╪«╪▓┘ê┘
++        await txn.insert('stock_movements', {
++          'product_id': item['product_id'],
++          'type': 'return',
++          'quantity': item['quantity'],
++          'reference_id': returnId,
++          'notes': '┘à╪▒╪ز╪ش╪╣ ┘à╪ذ┘è╪╣╪د╪ز - ┘╪د╪ز┘ê╪▒╪ر #$saleNumber',
++          'created_at': now,
++        });
++      }
++
++      // 3. ╪│╪ش┘ ╪د┘╪ص╪▒┘â╪ر ╪د┘┘à╪د┘┘è╪ر (╪«╪▒┘ê╪ش ┘┘é╪»┘è╪ر)
++      // ╪ح╪░╪د ┘â╪د┘╪ز ╪د┘┘╪د╪ز┘ê╪▒╪ر ╪د┘╪ث╪╡┘┘è╪ر ┘â╪د╪┤╪î ┘╪«╪╡┘à ┘à┘ ╪د┘╪╡┘╪»┘ê┘é
++      if (paymentMethod == 'cash') {
++        await txn.insert('cash_transactions', {
++          'type': 'out',
++          'amount': totalAmount,
++          'reference_type': 'return',
++          'reference_id': returnId,
++          'notes': '╪ح╪▒╪ش╪د╪╣ ┘à╪ذ┘╪║ ┘╪د╪ز┘ê╪▒╪ر #$saleNumber',
++          'created_at': now,
++        });
++      }
++      
++      // ┘à┘╪د╪ص╪╕╪ر: ╪ح╪░╪د ┘â╪د┘╪ز "╪ت╪ش┘"╪î ┘è╪ش╪ذ ┘à╪╣╪د┘╪ش╪ر ╪▒╪╡┘è╪» ╪د┘╪╣┘à┘è┘ (┘ç╪░╪د ╪ز╪╖┘ê┘è╪▒ ┘à╪│╪ز┘é╪ذ┘┘è ┘à┘ç┘à)
++    });
++
++    return returnId;
++  }
++
++  Future<List<Map<String, dynamic>>> getReturns() async {
++    final db = await database;
++    return await db.query('returns', orderBy: 'created_at DESC');
++  }
++
++  Future<List<Map<String, dynamic>>> getPersonStatement(String name, String type) async {
++    final db = await database;
++    
++    // ╪ش┘╪ذ ╪د┘╪»┘è┘ê┘
++    final debts = await db.rawQuery('''
++      SELECT id, amount, notes, created_at, 'debt' as record_type
++      FROM debts 
++      WHERE person_name = ? AND type = ?
++    ''', [name, type]);
++
++    // ╪ش┘╪ذ ╪د┘┘à╪»┘┘ê╪╣╪د╪ز ╪د┘┘à╪▒╪ز╪ذ╪╖╪ر ╪ذ┘ç╪░┘ç ╪د┘╪»┘è┘ê┘
++    final payments = await db.rawQuery('''
++      SELECT dp.id, dp.amount, dp.notes, dp.created_at, 'payment' as record_type
++      FROM debt_payments dp
++      JOIN debts d ON dp.debt_id = d.id
++      WHERE d.person_name = ? AND d.type = ?
++    ''', [name, type]);
++
++    // ╪»┘à╪ش ┘ê╪ز╪▒╪ز┘è╪ذ
++    List<Map<String, dynamic>> combined = [...debts, ...payments];
++    combined.sort((a, b) => (a['created_at'] as String).compareTo(b['created_at'] as String));
++    
++    return combined;
++  }
++
++  // ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤
++  // CASH SESSIONS (DAILY BOX)
++  // ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤
++  Future<Map<String, dynamic>?> getActiveCashSession() async {
++    final db = await database;
++    final rows = await db.query('cash_sessions', where: 'status = ?', whereArgs: ['open'], limit: 1);
++    return rows.isEmpty ? null : rows.first;
++  }
++
++  Future<int> openCashSession(double openingBalance, String? notes) async {
++    final db = await database;
++    return await db.insert('cash_sessions', {
++      'opening_balance': openingBalance,
++      'status': 'open',
++      'notes': notes,
++      'opened_at': DateTime.now().toIso8601String(),
++    });
++  }
++
++  Future<void> closeCashSession({
++    required int sessionId,
++    required double actualCash,
++    String? notes,
++  }) async {
++    final db = await database;
++    final now = DateTime.now().toIso8601String();
++    
++    // 1. ╪ص╪│╪د╪ذ ╪د┘╪▒╪╡┘è╪» ╪د┘┘à╪ز┘ê┘é╪╣ ╪ذ┘╪د╪ة┘ï ╪╣┘┘ë ╪د┘╪ص╪▒┘â╪د╪ز ╪د┘┘à╪د┘┘è╪ر ┘à┘╪░ ┘╪ز╪ص ╪د┘╪ش┘╪│╪ر
++    final session = await db.query('cash_sessions', where: 'id = ?', whereArgs: [sessionId]);
++    if (session.isEmpty) return;
++    
++    final openTime = session.first['opened_at'] as String;
++    final openBalance = session.first['opening_balance'] as double;
++
++    // ╪ش┘╪ذ ╪╡╪د┘┘è ╪د┘╪ص╪▒┘â╪د╪ز ╪د┘┘à╪د┘┘è╪ر (in - out)
++    final result = await db.rawQuery('''
++      SELECT 
++        SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END) as total_in,
++        SUM(CASE WHEN type = 'out' THEN amount ELSE 0 END) as total_out
++      FROM cash_transactions 
++      WHERE created_at >= ?
++    ''', [openTime]);
++
++    final totalIn  = (result.first['total_in'] as num?)?.toDouble() ?? 0.0;
++    final totalOut = (result.first['total_out'] as num?)?.toDouble() ?? 0.0;
++    
++    final expectedBalance = openBalance + totalIn - totalOut;
++    final difference = actualCash - expectedBalance;
++
++    await db.update('cash_sessions', {
++      'closing_balance': expectedBalance,
++      'actual_cash': actualCash,
++      'difference': difference,
++      'status': 'closed',
++      'notes': notes,
++      'closed_at': now,
++    }, where: 'id = ?', whereArgs: [sessionId]);
++  }
++
+   // ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤
+   // PRODUCT UNITS
+   // ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤

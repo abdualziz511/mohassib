@@ -36,7 +36,7 @@ class DatabaseHelper {
       return databaseFactory.openDatabase(path, options: options);
     }(
       path,
-      version: 4,
+      version: 8,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onConfigure: (db) async => await db.execute('PRAGMA foreign_keys = ON'),
@@ -157,6 +157,56 @@ class DatabaseHelper {
       try { await db.execute('ALTER TABLE sale_items ADD COLUMN stock_qty REAL NOT NULL DEFAULT 1.0'); } catch(_) {}
       try { await db.execute('ALTER TABLE purchase_items ADD COLUMN stock_qty REAL NOT NULL DEFAULT 1.0'); } catch(_) {}
     }
+
+    if (oldVersion < 5) {
+      // 1. إضافة حقل تصنيف المنتجات
+      try { await db.execute("ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'عام'"); } catch(_) {}
+    }
+
+    if (oldVersion < 7) {
+      // إضافة جداول المرتجعات
+      await db.execute('''
+        CREATE TABLE returns (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          sale_id         INTEGER,
+          sale_number     TEXT,
+          total_amount    REAL    NOT NULL,
+          payment_method  TEXT    NOT NULL,
+          notes           TEXT,
+          created_at      TEXT    NOT NULL,
+          FOREIGN KEY (sale_id) REFERENCES sales (id) ON DELETE SET NULL
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE return_items (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          return_id     INTEGER NOT NULL,
+          product_id    INTEGER NOT NULL,
+          product_name  TEXT    NOT NULL,
+          quantity      REAL    NOT NULL,
+          price         REAL    NOT NULL,
+          total         REAL    NOT NULL,
+          FOREIGN KEY (return_id) REFERENCES returns (id) ON DELETE CASCADE
+        )
+      ''');
+    }
+
+    if (oldVersion < 8) {
+      // إضافة جدول جلسات الصندوق
+      await db.execute('''
+        CREATE TABLE cash_sessions (
+          id                INTEGER PRIMARY KEY AUTOINCREMENT,
+          opening_balance   REAL    NOT NULL DEFAULT 0.0,
+          closing_balance   REAL,
+          actual_cash       REAL,
+          difference        REAL,
+          status            TEXT    NOT NULL DEFAULT 'open', -- 'open' or 'closed'
+          notes             TEXT,
+          opened_at         TEXT    NOT NULL,
+          closed_at         TEXT
+        )
+      ''');
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -228,6 +278,7 @@ class DatabaseHelper {
         wholesale_price REAL    DEFAULT 0.0,
         quantity        REAL    NOT NULL DEFAULT 0.0,
         unit            TEXT    NOT NULL DEFAULT 'قطعة',
+        category        TEXT    DEFAULT 'عام',
         currency_id     INTEGER REFERENCES currencies(id),
         is_liquid       INTEGER NOT NULL DEFAULT 0,
         is_by_weight    INTEGER NOT NULL DEFAULT 0,
@@ -414,12 +465,14 @@ class DatabaseHelper {
     return rows.isEmpty ? null : rows.first;
   }
 
-  Future<void> updateStoreSettings({String? name, double? taxRate, String? currency}) async {
+  Future<void> updateStoreSettings({String? name, double? taxRate, String? currency, String? phone, String? address}) async {
     final db = await database;
     final Map<String, dynamic> data = {};
     if (name != null) data['store_name'] = name;
     if (taxRate != null) data['tax_rate'] = taxRate;
     if (currency != null) data['currency'] = currency;
+    if (phone != null) data['phone'] = phone;
+    if (address != null) data['address'] = address;
     data['updated_at'] = DateTime.now().toIso8601String();
     await db.update('store_settings', data, where: 'id = ?', whereArgs: [1]);
   }
@@ -650,6 +703,72 @@ class DatabaseHelper {
       fullSales.add(map);
     }
     return fullSales;
+  }
+
+  /// فلترة المبيعات حسب نطاق تاريخ، طريقة دفع، أو اسم عميل
+  Future<List<Map<String, dynamic>>> getSalesFiltered({
+    DateTime? from,
+    DateTime? to,
+    String? paymentMethod,
+    String? customerName,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <dynamic>[];
+
+    if (from != null) {
+      where.add("created_at >= ?");
+      args.add(from.toIso8601String().substring(0, 10));
+    }
+    if (to != null) {
+      where.add("created_at < ?");
+      args.add(to.add(const Duration(days: 1)).toIso8601String().substring(0, 10));
+    }
+    if (paymentMethod != null && paymentMethod != 'الكل') {
+      where.add("payment_method = ?");
+      args.add(paymentMethod);
+    }
+    if (customerName != null && customerName.isNotEmpty) {
+      where.add("customer_name LIKE ?");
+      args.add('%$customerName%');
+    }
+
+    final salesMaps = await db.query(
+      'sales',
+      where: where.isEmpty ? null : where.join(' AND '),
+      whereArgs: args.isEmpty ? null : args,
+      orderBy: 'created_at DESC',
+    );
+
+    List<Map<String, dynamic>> fullSales = [];
+    for (var m in salesMaps) {
+      var map = Map<String, dynamic>.from(m);
+      final items = await getSaleItems(map['id']);
+      map['items'] = items;
+      fullSales.add(map);
+    }
+    return fullSales;
+  }
+
+  /// بيانات المبيعات اليومية لآخر N يوم (للرسم البياني)
+  Future<List<Map<String, dynamic>>> getDailySalesChart({int days = 7}) async {
+    final db = await database;
+    final result = <Map<String, dynamic>>[];
+    for (int i = days - 1; i >= 0; i--) {
+      final date = DateTime.now().subtract(Duration(days: i));
+      final dateStr = date.toIso8601String().substring(0, 10);
+      final rows = await db.rawQuery('''
+        SELECT COALESCE(SUM(total_amount),0) as total, COUNT(*) as cnt
+        FROM sales WHERE created_at LIKE '$dateStr%' AND status='completed'
+      ''');
+      result.add({
+        'date': dateStr,
+        'label': '${date.day}/${date.month}',
+        'total': (rows.first['total'] as num?)?.toDouble() ?? 0.0,
+        'count': (rows.first['cnt'] as int?) ?? 0,
+      });
+    }
+    return result;
   }
 
   // ─────────────────────────────────────────────
@@ -997,13 +1116,24 @@ class DatabaseHelper {
   // ─────────────────────────────────────────────
   Future<Map<String, double>> getDailyStats(String date) async {
     final db = await database;
+    
+    // 1. المبيعات
     final salesResult = await db.rawQuery('''
       SELECT COALESCE(SUM(total_amount),0) as total, COUNT(*) as count
       FROM sales WHERE created_at LIKE '$date%' AND status = 'completed'
     ''');
+    
+    // 2. المصروفات
     final expResult = await db.rawQuery('''
       SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE created_at LIKE '$date%'
     ''');
+    
+    // 3. المرتجعات
+    final returnResult = await db.rawQuery('''
+      SELECT COALESCE(SUM(total_amount),0) as total FROM returns WHERE created_at LIKE '$date%'
+    ''');
+
+    // 4. ربح المبيعات (المباع - تكلفته)
     final profitResult = await db.rawQuery('''
       SELECT COALESCE(SUM((si.sell_price - si.buy_price) * si.quantity),0) as profit
       FROM sale_items si
@@ -1011,16 +1141,30 @@ class DatabaseHelper {
       WHERE s.created_at LIKE '$date%' AND s.status = 'completed'
     ''');
 
-    final sales    = (salesResult.first['total']  as num?)?.toDouble() ?? 0;
-    final expenses = (expResult.first['total']    as num?)?.toDouble() ?? 0;
-    final profit   = (profitResult.first['profit'] as num?)?.toDouble() ?? 0;
+    // 5. ربح المرتجعات (الربح الذي تم استرجاعه/خسارته)
+    final returnProfitResult = await db.rawQuery('''
+      SELECT COALESCE(SUM((ri.price - p.buy_price) * ri.quantity),0) as profit
+      FROM return_items ri
+      JOIN products p ON p.id = ri.product_id
+      JOIN returns r ON r.id = ri.return_id
+      WHERE r.created_at LIKE '$date%'
+    ''');
+
+    final sales        = (salesResult.first['total']        as num?)?.toDouble() ?? 0;
+    final expenses     = (expResult.first['total']          as num?)?.toDouble() ?? 0;
+    final returns      = (returnResult.first['total']       as num?)?.toDouble() ?? 0;
+    final grossProfit  = (profitResult.first['profit']      as num?)?.toDouble() ?? 0;
+    final returnProfit = (returnProfitResult.first['profit'] as num?)?.toDouble() ?? 0;
+
+    final netSales = sales - returns;
+    final actualGrossProfit = grossProfit - returnProfit;
 
     return {
-      'sales':        sales,
+      'sales':        netSales,
       'expenses':     expenses,
-      'gross_profit': profit,               // ربح المبيعات فقط
-      'profit':       profit - expenses,    // صافي (legacy key)
-      'net_profit':   profit - expenses,    // صافي الربح بعد المصروفات
+      'returns':      returns,
+      'gross_profit': actualGrossProfit,
+      'net_profit':   actualGrossProfit - expenses,
       'count': (salesResult.first['count'] as int?)?.toDouble() ?? 0,
     };
   }
@@ -1181,6 +1325,145 @@ class DatabaseHelper {
       LEFT JOIN suppliers s ON p.supplier_id = s.id
       ORDER BY p.created_at DESC
     ''');
+  }
+
+  // ─────────────────────────────────────────────
+  // RETURNS
+  // ─────────────────────────────────────────────
+  Future<int> processReturn({
+    required int saleId,
+    required String saleNumber,
+    required List<Map<String, dynamic>> items,
+    required double totalAmount,
+    required String paymentMethod,
+    String? notes,
+  }) async {
+    final db = await database;
+    int returnId = 0;
+
+    await db.transaction((txn) async {
+      final now = DateTime.now().toIso8601String();
+
+      // 1. إدراج رأس المرتجع
+      returnId = await txn.insert('returns', {
+        'sale_id': saleId,
+        'sale_number': saleNumber,
+        'total_amount': totalAmount,
+        'payment_method': paymentMethod,
+        'notes': notes,
+        'created_at': now,
+      });
+
+      // 2. إدراج الأصناف المرتجعة وتحديث المخزون
+      for (final item in items) {
+        await txn.insert('return_items', {
+          'return_id': returnId,
+          'product_id': item['product_id'],
+          'product_name': item['product_name'],
+          'quantity': item['quantity'],
+          'price': item['price'],
+          'total': item['total'],
+        });
+
+        // زيادة المخزون مجدداً
+        await txn.rawUpdate('''
+          UPDATE products SET quantity = quantity + ?, updated_at = ?
+          WHERE id = ?
+        ''', [item['quantity'], now, item['product_id']]);
+
+        // سجل حركة المخزون
+        await txn.insert('stock_movements', {
+          'product_id': item['product_id'],
+          'type': 'return',
+          'quantity': item['quantity'],
+          'reference_id': returnId,
+          'notes': 'مرتجع مبيعات - فاتورة #$saleNumber',
+          'created_at': now,
+        });
+      }
+
+      // 3. سجل الحركة المالية (خروج نقدية)
+      // إذا كانت الفاتورة الأصلية كاش، نخصم من الصندوق
+      if (paymentMethod == 'cash') {
+        await txn.insert('cash_transactions', {
+          'type': 'out',
+          'amount': totalAmount,
+          'reference_type': 'return',
+          'reference_id': returnId,
+          'notes': 'إرجاع مبلغ فاتورة #$saleNumber',
+          'created_at': now,
+        });
+      }
+      
+      // ملاحظة: إذا كانت "آجل"، يجب معالجة رصيد العميل (هذا تطوير مستقبلي مهم)
+    });
+
+    return returnId;
+  }
+
+  Future<List<Map<String, dynamic>>> getReturns() async {
+    final db = await database;
+    return await db.query('returns', orderBy: 'created_at DESC');
+  }
+
+
+  // ─────────────────────────────────────────────
+  // CASH SESSIONS (DAILY BOX)
+  // ─────────────────────────────────────────────
+  Future<Map<String, dynamic>?> getActiveCashSession() async {
+    final db = await database;
+    final rows = await db.query('cash_sessions', where: 'status = ?', whereArgs: ['open'], limit: 1);
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  Future<int> openCashSession(double openingBalance, String? notes) async {
+    final db = await database;
+    return await db.insert('cash_sessions', {
+      'opening_balance': openingBalance,
+      'status': 'open',
+      'notes': notes,
+      'opened_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<void> closeCashSession({
+    required int sessionId,
+    required double actualCash,
+    String? notes,
+  }) async {
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+    
+    // 1. حساب الرصيد المتوقع بناءً على الحركات المالية منذ فتح الجلسة
+    final session = await db.query('cash_sessions', where: 'id = ?', whereArgs: [sessionId]);
+    if (session.isEmpty) return;
+    
+    final openTime = session.first['opened_at'] as String;
+    final openBalance = session.first['opening_balance'] as double;
+
+    // جلب صافي الحركات المالية (in - out)
+    final result = await db.rawQuery('''
+      SELECT 
+        SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END) as total_in,
+        SUM(CASE WHEN type = 'out' THEN amount ELSE 0 END) as total_out
+      FROM cash_transactions 
+      WHERE created_at >= ?
+    ''', [openTime]);
+
+    final totalIn  = (result.first['total_in'] as num?)?.toDouble() ?? 0.0;
+    final totalOut = (result.first['total_out'] as num?)?.toDouble() ?? 0.0;
+    
+    final expectedBalance = openBalance + totalIn - totalOut;
+    final difference = actualCash - expectedBalance;
+
+    await db.update('cash_sessions', {
+      'closing_balance': expectedBalance,
+      'actual_cash': actualCash,
+      'difference': difference,
+      'status': 'closed',
+      'notes': notes,
+      'closed_at': now,
+    }, where: 'id = ?', whereArgs: [sessionId]);
   }
 
   // ─────────────────────────────────────────────

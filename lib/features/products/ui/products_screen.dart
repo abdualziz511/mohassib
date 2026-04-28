@@ -3,25 +3,43 @@ import 'package:provider/provider.dart';
 import '../models/product_model.dart';
 import '../provider/product_provider.dart';
 import 'add_product_screen.dart';
+import 'low_stock_screen.dart';
+import 'print_barcode_screen.dart';
 
-class ProductsScreen extends StatelessWidget {
+class ProductsScreen extends StatefulWidget {
   const ProductsScreen({super.key});
+  @override
+  State<ProductsScreen> createState() => _ProductsScreenState();
+}
+
+class _ProductsScreenState extends State<ProductsScreen> {
+  String _selectedCategory = 'الكل';
 
   @override
   Widget build(BuildContext context) {
     final pp = context.watch<ProductProvider>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // استخراج التصنيفات الفريدة
+    final categories = ['الكل', ...{...pp.products.map((p) => p.category)}];
+
+    // تطبيق فلتر التصنيف + البحث
+    final displayList = _selectedCategory == 'الكل'
+        ? pp.products
+        : pp.products.where((p) => p.category == _selectedCategory).toList();
+
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF111116) : const Color(0xFFF5F7FB),
       body: SafeArea(child: Column(children: [
         _appBar(context, pp, isDark),
         _searchBar(context, pp, isDark),
+        _categoryBar(categories, isDark),
         _statsRow(pp, isDark),
         pp.isLoading
           ? const Expanded(child: Center(child: CircularProgressIndicator(color: Colors.cyan)))
-          : pp.products.isEmpty
+          : displayList.isEmpty
             ? _empty(isDark)
-            : _grid(context, pp, isDark),
+            : _grid(context, pp, isDark, displayList),
       ])),
     );
   }
@@ -32,6 +50,25 @@ class ProductsScreen extends StatelessWidget {
       _circleBtn(Icons.add, color: Colors.cyan, onTap: () => _openAdd(ctx)),
       const SizedBox(width: 8),
       _circleBtn(Icons.bar_chart, onTap: () => _showReport(ctx, pp, isDark)),
+      const SizedBox(width: 8),
+      _circleBtn(Icons.qr_code, color: Colors.amberAccent, onTap: () => Navigator.push(ctx, MaterialPageRoute(builder: (_) => const PrintBarcodeScreen()))),
+      const SizedBox(width: 8),
+      // زر المخزون المنخفض مع بادج
+      Stack(
+        clipBehavior: Clip.none,
+        children: [
+          _circleBtn(Icons.warning_amber_rounded, color: Colors.orangeAccent,
+              onTap: () => Navigator.push(ctx, MaterialPageRoute(builder: (_) =>
+                ChangeNotifierProvider.value(value: pp, child: const LowStockScreen())))),
+          if (pp.lowStockProducts.isNotEmpty)
+            Positioned(top: -4, right: -4, child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+              child: Text('${pp.lowStockProducts.length}',
+                  style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+            )),
+        ],
+      ),
       const Spacer(),
       const Text('المخزون', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
       const Spacer(),
@@ -54,6 +91,36 @@ class ProductsScreen extends StatelessWidget {
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
+    ),
+  );
+
+  Widget _categoryBar(List<String> categories, bool isDark) => SizedBox(
+    height: 42,
+    child: ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      itemCount: categories.length,
+      separatorBuilder: (_, __) => const SizedBox(width: 8),
+      itemBuilder: (_, i) {
+        final cat = categories[i];
+        final isActive = _selectedCategory == cat;
+        return GestureDetector(
+          onTap: () => setState(() => _selectedCategory = cat),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: isActive ? Colors.cyan : (isDark ? const Color(0xFF1A1A24) : Colors.white),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: isActive ? Colors.cyan : Colors.white24),
+            ),
+            child: Text(cat, style: TextStyle(
+                color: isActive ? Colors.black : (isDark ? Colors.white70 : Colors.black54),
+                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                fontSize: 12)),
+          ),
+        );
+      },
     ),
   );
 
@@ -86,13 +153,13 @@ class ProductsScreen extends StatelessWidget {
     Text('اضغط + لإضافة منتجك الأول', style: TextStyle(color: isDark ? Colors.white24 : Colors.black26, fontSize: 13)),
   ])));
 
-  Widget _grid(BuildContext context, ProductProvider pp, bool isDark) => Expanded(
+  Widget _grid(BuildContext context, ProductProvider pp, bool isDark, List<ProductModel> list) => Expanded(
     child: GridView.builder(
       padding: const EdgeInsets.all(16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 0.82),
-      itemCount: pp.products.length,
+      itemCount: list.length,
       itemBuilder: (ctx, i) {
-        final ProductModel p = pp.products[i];
+        final ProductModel p = list[i];
         return _card(ctx, p, pp, isDark);
       },
     ),
@@ -183,10 +250,11 @@ class ProductsScreen extends StatelessWidget {
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
     builder: (_) => _StockReportSheet(pp: pp));
 
-  void _showFilter(BuildContext ctx, ProductProvider pp, bool isDark) => showModalBottomSheet(
-    context: ctx, backgroundColor: const Color(0xFF1A1A24),
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-    builder: (_) => _FilterSheet(pp: pp));
+  void _showFilter(BuildContext ctx, ProductProvider pp, bool isDark) => Navigator.push(
+    ctx,
+    MaterialPageRoute(builder: (_) => ChangeNotifierProvider.value(
+      value: pp, child: const LowStockScreen())),
+  );
 }
 
 // ── تقرير المخزون ─────────────────────────────────────────────
@@ -240,35 +308,3 @@ class _StockReportSheet extends StatelessWidget {
   }
 }
 
-class _FilterSheet extends StatelessWidget {
-  final ProductProvider pp;
-  const _FilterSheet({required this.pp});
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.all(20),
-    child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
-      Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)))),
-      const SizedBox(height: 16),
-      const Center(child: Text('تصفية المخزون', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))),
-      const SizedBox(height: 24),
-      Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.end, children: [
-        _chip('الكل', true),
-        _chip('الأكثر مبيعاً', false),
-        _chip('مخزون منخفض', false),
-        _chip('نفذ', false),
-      ]),
-      const SizedBox(height: 24),
-      SizedBox(width: double.infinity, child: ElevatedButton(
-        onPressed: () => Navigator.pop(context),
-        style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-        child: const Text('تطبيق', style: TextStyle(color: Colors.white, fontSize: 16)),
-      )),
-    ]),
-  );
-
-  Widget _chip(String l, bool active) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-    decoration: BoxDecoration(color: active ? Colors.cyan.shade600 : Colors.transparent, borderRadius: BorderRadius.circular(8), border: Border.all(color: active ? Colors.cyan.shade600 : Colors.white24)),
-    child: Text(l, style: TextStyle(color: Colors.white, fontWeight: active ? FontWeight.bold : FontWeight.normal)),
-  );
-}

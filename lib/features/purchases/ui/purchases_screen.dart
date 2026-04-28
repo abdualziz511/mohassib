@@ -6,7 +6,7 @@ import '../../products/provider/product_provider.dart';
 import '../../suppliers/provider/supplier_provider.dart';
 import '../provider/purchase_provider.dart';
 import '../../products/models/product_model.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
 class PurchasesScreen extends StatefulWidget {
   const PurchasesScreen({super.key});

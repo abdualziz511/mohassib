@@ -46,4 +46,21 @@ class CustomerProvider extends ChangeNotifier {
     await loadAll();
     return excess;
   }
+
+  Future<bool> updateCustomer(CustomerModel customer) async {
+    final db = await _db.database;
+    final existing = await db.query('customers', where: 'name = ? AND id != ?', whereArgs: [customer.name.trim(), customer.id], limit: 1);
+    if (existing.isNotEmpty) return false;
+    
+    await db.update('customers', customer.toMap(), where: 'id = ?', whereArgs: [customer.id]);
+    await db.rawUpdate('UPDATE debts SET person_name = ? WHERE customer_id = ?', [customer.name, customer.id]);
+    await loadAll();
+    return true;
+  }
+
+  Future<void> deleteCustomer(int id) async {
+    final db = await _db.database;
+    await db.delete('customers', where: 'id = ?', whereArgs: [id]);
+    await loadAll();
+  }
 }

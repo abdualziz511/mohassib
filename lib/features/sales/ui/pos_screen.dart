@@ -267,11 +267,30 @@ class _POSScreenState extends State<POSScreen> {
                 Text('${cart.taxAmount.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12)),
                 const Text(' :ضريبة', style: TextStyle(color: Colors.grey, fontSize: 11)),
               ]),
-              if (cart.discount > 0) Row(children: [
-                Text('${cart.discount.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 12)),
-                const Text(' :خصم', style: TextStyle(color: Colors.grey, fontSize: 11)),
-              ]),
+              InkWell(
+                onTap: () => _showDiscountDialog(context, cart),
+                child: Row(children: [
+                  Text(cart.discount > 0 ? '${cart.discount.toStringAsFixed(0)} ر.ي' : 'إضافة خصم', style: TextStyle(color: cart.discount > 0 ? Colors.redAccent : Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(width: 4),
+                  Icon(Icons.local_offer, color: cart.discount > 0 ? Colors.redAccent : Colors.blueAccent, size: 14),
+                ]),
+              ),
             ]),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8.0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: InkWell(
+                onTap: () => _showDiscountDialog(context, cart),
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text('إضافة خصم', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+                  SizedBox(width: 4),
+                  Icon(Icons.local_offer, color: Colors.blueAccent, size: 14),
+                ]),
+              ),
+            ),
           ),
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Expanded(child: ElevatedButton(
@@ -322,6 +341,38 @@ class _POSScreenState extends State<POSScreen> {
         ],
         child: const _PaymentSheet(),
       ));
+  }
+
+  void _showDiscountDialog(BuildContext context, CartProvider cart) {
+    final ctrl = TextEditingController(text: cart.discount > 0 ? cart.discount.toStringAsFixed(0) : '');
+    showDialog(context: context, builder: (_) => AlertDialog(
+      backgroundColor: const Color(0xFF1A1A24),
+      title: const Text('إضافة خصم', style: TextStyle(color: Colors.white), textAlign: TextAlign.right),
+      content: TextField(
+        controller: ctrl,
+        keyboardType: TextInputType.number,
+        textAlign: TextAlign.right,
+        style: const TextStyle(color: Colors.white),
+        decoration: InputDecoration(
+          hintText: 'أدخل مبلغ الخصم',
+          hintStyle: const TextStyle(color: Colors.grey),
+          filled: true, fillColor: const Color(0xFF111116),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء', style: TextStyle(color: Colors.grey))),
+        ElevatedButton(
+          onPressed: () {
+            final val = double.tryParse(ctrl.text) ?? 0;
+            cart.setDiscount(val);
+            Navigator.pop(context);
+          },
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+          child: const Text('تأكيد', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    ));
   }
 }
 
@@ -410,8 +461,16 @@ class _QtyDialog extends StatefulWidget {
 class _QtyDialogState extends State<_QtyDialog> {
   late double _qty;
   late double _price;
+  late TextEditingController _priceCtrl;
   @override
-  void initState() { super.initState(); _qty = widget.item.quantity; _price = widget.item.sellPrice; }
+  void initState() { 
+    super.initState(); 
+    _qty = widget.item.quantity; 
+    _price = widget.item.sellPrice; 
+    _priceCtrl = TextEditingController(text: _price.toStringAsFixed(_price % 1 == 0 ? 0 : 2));
+  }
+  @override
+  void dispose() { _priceCtrl.dispose(); super.dispose(); }
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -434,15 +493,36 @@ class _QtyDialogState extends State<_QtyDialog> {
           ),
         ]),
         Text(widget.item.unit, style: const TextStyle(color: Colors.grey)),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _priceCtrl,
+          keyboardType: TextInputType.number,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.amber, fontSize: 20, fontWeight: FontWeight.bold),
+          decoration: InputDecoration(
+            labelText: 'سعر الوحدة (ر.ي)',
+            labelStyle: const TextStyle(color: Colors.grey, fontSize: 14),
+            filled: true, fillColor: const Color(0xFF111116),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+          ),
+          onChanged: (v) {
+            final val = double.tryParse(v);
+            if (val != null) setState(() => _price = val);
+          },
+        ),
         const Divider(color: Colors.white10, height: 32),
-        Text('الإجمالي: ${(_price * _qty).toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.amber, fontSize: 16, fontWeight: FontWeight.bold)),
+        Text('الإجمالي: ${(_price * _qty).toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.cyanAccent, fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 24),
         Row(children: [
           Expanded(child: OutlinedButton(onPressed: () => Navigator.pop(context),
             style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white24), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             child: const Text('إلغاء', style: TextStyle(color: Colors.white70)))),
           const SizedBox(width: 12),
-          Expanded(child: ElevatedButton(onPressed: () { widget.cart.updateQuantity(widget.item.productId, _qty); Navigator.pop(context); },
+          Expanded(child: ElevatedButton(onPressed: () { 
+            widget.cart.updateQuantity(widget.item.productId, _qty); 
+            widget.cart.updateSellPrice(widget.item.productId, _price);
+            Navigator.pop(context); 
+          },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             child: const Text('تأكيد', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)))),
         ]),

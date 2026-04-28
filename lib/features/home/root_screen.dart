@@ -4,9 +4,6 @@ import '../products/ui/products_screen.dart'; // تم استبدال التقا�
 import '../sales/ui/pos_screen.dart';
 import '../expenses/ui/expenses_screen.dart'; 
 import '../debts/ui/debts_screen.dart'; 
-import '../sales/ui/sales_history_screen.dart';
-import '../settings/ui/settings_screen.dart';
-
 class RootScreen extends StatefulWidget {
   const RootScreen({super.key});
 

@@ -17,6 +17,7 @@ import 'package:mohassib/features/purchases/ui/purchases_screen.dart';
 import 'package:mohassib/features/suppliers/ui/suppliers_screen.dart';
 import 'package:mohassib/features/customers/ui/customers_screen.dart';
 import 'package:mohassib/features/reports/ui/reports_screen.dart';
+import 'package:mohassib/features/reports/ui/cash_drawer_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -316,7 +317,7 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               _summaryItem('المصروفات', hp.todayExpenses, Colors.redAccent, isDark, titleColor, cardColor),
               const SizedBox(width: 12),
-              _summaryItem('ربح المبيعات', hp.todayGrossProfit, Colors.orangeAccent, isDark, titleColor, cardColor),
+              _summaryItem('المرتجعات', hp.todayReturns, Colors.orangeAccent, isDark, titleColor, cardColor),
             ]
           ),
         ),
@@ -325,7 +326,9 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16.0),
           child: Row(
             children: [
-              _summaryItem('المبيعات', hp.todaySales, Colors.blueAccent, isDark, titleColor, cardColor),
+              _summaryItem('المبيعات (صافي)', hp.todaySales, Colors.blueAccent, isDark, titleColor, cardColor),
+              const SizedBox(width: 12),
+              _summaryItem('ربح المبيعات', hp.todayGrossProfit, Colors.greenAccent, isDark, titleColor, cardColor),
             ]
           ),
         )
@@ -356,7 +359,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _vDiv(isDark),
       _smallStat('المصروفات', hp.todayExpenses, Colors.redAccent, isDark, titleColor),
       _vDiv(isDark),
-      _smallStat('ربح المبيعات', hp.todayGrossProfit, Colors.orangeAccent, isDark, titleColor),
+      _smallStat('المرتجع', hp.todayReturns, Colors.orangeAccent, isDark, titleColor),
     ]),
   );
 
@@ -411,10 +414,11 @@ class _HomeScreenState extends State<HomeScreen> {
             showModalBottomSheet(context: context, backgroundColor: Colors.transparent, isScrollControlled: true, 
               builder: (_) => _AddExpenseQuickSheet(ep: context.read<ExpenseProvider>()));
           }),
-          _buildActionButton('إضافة دين', Icons.group_add, Colors.orangeAccent, isDark, () {
+          _buildActionButton('الديون', Icons.group_add, Colors.orangeAccent, isDark, () {
             showModalBottomSheet(context: context, backgroundColor: Colors.transparent, isScrollControlled: true, 
               builder: (_) => _AddDebtQuickSheet(dp: context.read<DebtProvider>()));
           }),
+          _buildActionButton('الصندوق', Icons.lock_clock_outlined, Colors.amberAccent, isDark, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CashDrawerScreen()))),
           _buildActionButton('نقطة بيع', Icons.shopping_cart, Colors.blueAccent, isDark, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const POSScreen()))),
         ],
       ),
@@ -490,6 +494,10 @@ class _HomeScreenState extends State<HomeScreen> {
           _drawerItem('الإحصائيات والتقارير', Icons.insights, Colors.cyan, onTap: () {
              Navigator.pop(context);
              Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen()));
+          }),
+          _drawerItem('صندوق اليومية', Icons.lock_clock_outlined, Colors.amberAccent, onTap: () {
+             Navigator.pop(context);
+             Navigator.push(context, MaterialPageRoute(builder: (_) => const CashDrawerScreen()));
           }),
           _drawerItem('سجل المبيعات', Icons.history, Colors.blue, onTap: () {
              Navigator.pop(context);

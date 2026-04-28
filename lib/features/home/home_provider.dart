@@ -11,8 +11,9 @@ class HomeProvider extends ChangeNotifier {
   // اليوم
   double todaySales        = 0;
   double todayExpenses     = 0;
-  double todayGrossProfit  = 0; // ربح المبيعات قبل المصروفات
-  double todayProfit       = 0; // صافي الربح = ربح المبيعات - المصروفات
+  double todayReturns      = 0;
+  double todayGrossProfit  = 0;
+  double todayProfit       = 0;
   double todayCount        = 0;
 
   // الديون
@@ -50,6 +51,7 @@ class HomeProvider extends ChangeNotifier {
 
     todaySales        = stats['sales']         ?? 0;
     todayExpenses     = stats['expenses']      ?? 0;
+    todayReturns      = stats['returns']       ?? 0;
     todayGrossProfit  = stats['gross_profit']  ?? 0;
     todayProfit       = stats['net_profit']    ?? 0;
     todayCount        = stats['count']         ?? 0;
