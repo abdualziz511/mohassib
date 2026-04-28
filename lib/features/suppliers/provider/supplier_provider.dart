@@ -28,6 +28,10 @@ class SupplierProvider extends ChangeNotifier {
 
   Future<bool> addSupplier(SupplierModel s) async {
     try {
+      final db = await _db.database;
+      final existing = await db.query('suppliers', where: 'name = ?', whereArgs: [s.name.trim()], limit: 1);
+      if (existing.isNotEmpty) return false;
+
       final id = await _db.insertSupplier(s.toMap());
       await _db.syncSupplierDebts(id, s.name);
       await loadAll();
@@ -45,8 +49,9 @@ class SupplierProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> payDebtBulk(int supplierId, double amount, String notes) async {
-    await _db.paySupplierDebtBulk(supplierId, amount, notes);
+  Future<double> payDebtBulk(int supplierId, double amount, String notes) async {
+    final excess = await _db.paySupplierDebtBulk(supplierId, amount, notes);
     await loadAll();
+    return excess;
   }
 }

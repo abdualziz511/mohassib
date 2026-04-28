@@ -209,24 +209,45 @@ class DebtProvider extends ChangeNotifier {
       int? customerId = existingCustomerId;
       int? supplierId = existingSupplierId;
 
-      // إنشاء شخص جديد إذا طُلب ذلك
+      // إنشاء شخص جديد إذا طُلب ذلك (مع التحقق من التكرار لتجنب مضاعفة السجلات)
       if (createNewPerson) {
         if (type == 'receivable') {
-          customerId = await db.insert('customers', {
-            'name': personName,
-            'phone': phone,
-            'current_balance': amount,
-            'created_at': now,
-            'updated_at': now,
-          });
+          // التحقق من وجود العميل بالاسم أولاً
+          final existing = await db.query('customers', where: 'name = ?', whereArgs: [personName.trim()], limit: 1);
+          if (existing.isNotEmpty) {
+            customerId = existing.first['id'] as int;
+            // تحديث الرصيد للعميل الموجود بدلاً من إنشاء جديد
+            await db.rawUpdate('''
+              UPDATE customers SET current_balance = current_balance + ?, updated_at = ?
+              WHERE id = ?
+            ''', [amount, now, customerId]);
+          } else {
+            customerId = await db.insert('customers', {
+              'name': personName,
+              'phone': phone,
+              'current_balance': amount,
+              'created_at': now,
+              'updated_at': now,
+            });
+          }
         } else {
-          supplierId = await db.insert('suppliers', {
-            'name': personName,
-            'phone': phone,
-            'current_balance': amount,
-            'created_at': now,
-            'updated_at': now,
-          });
+          // التحقق من وجود المورد بالاسم أولاً
+          final existing = await db.query('suppliers', where: 'name = ?', whereArgs: [personName.trim()], limit: 1);
+          if (existing.isNotEmpty) {
+            supplierId = existing.first['id'] as int;
+            await db.rawUpdate('''
+              UPDATE suppliers SET current_balance = current_balance + ?, updated_at = ?
+              WHERE id = ?
+            ''', [amount, now, supplierId]);
+          } else {
+            supplierId = await db.insert('suppliers', {
+              'name': personName,
+              'phone': phone,
+              'current_balance': amount,
+              'created_at': now,
+              'updated_at': now,
+            });
+          }
         }
       } else if (customerId != null) {
         // تحديث رصيد العميل الموجود
@@ -274,19 +295,19 @@ class DebtProvider extends ChangeNotifier {
   }
 
   // ── سداد دفعة على دين واحد ────────────────────────────────
-  Future<bool> addPayment(int debtId, double amount, {String? notes}) async {
+  Future<double> addPayment(int debtId, double amount, {String? notes}) async {
     try {
-      await _db.addDebtPayment(debtId, amount, notes);
+      final excess = await _db.addDebtPayment(debtId, amount, notes);
       await loadAll();
-      return true;
+      return excess;
     } catch (e) {
       debugPrint('addPayment error: $e');
-      return false;
+      return 0;
     }
   }
 
   // ── سداد كل الديون لشخص دفعةً واحدة (bulk) ──────────────
-  Future<bool> payAllForPerson({
+  Future<double> payAllForPerson({
     required String personName,
     required String type,
     required double amount,
@@ -295,24 +316,25 @@ class DebtProvider extends ChangeNotifier {
     int? supplierId,
   }) async {
     try {
+      double excess = 0;
       if (type == 'receivable' && customerId != null) {
-        await _db.payCustomerDebtBulk(customerId, amount, notes);
+        excess = await _db.payCustomerDebtBulk(customerId, amount, notes);
       } else if (type == 'payable' && supplierId != null) {
-        await _db.paySupplierDebtBulk(supplierId, amount, notes);
+        excess = await _db.paySupplierDebtBulk(supplierId, amount, notes);
       } else {
         // سداد مباشر على الديون باسم الشخص بدون ربط
-        await _payByName(personName, type, amount, notes);
+        excess = await _payByName(personName, type, amount, notes);
       }
       await loadAll();
-      return true;
+      return excess;
     } catch (e) {
       debugPrint('payAllForPerson error: $e');
-      return false;
+      return 0;
     }
   }
 
   // سداد ديون بالاسم (للديون غير المربوطة بعميل/مورد)
-  Future<void> _payByName(
+  Future<double> _payByName(
       String personName, String type, double amount, String notes) async {
     final db = await _db.database;
     final now = DateTime.now().toIso8601String();
@@ -323,6 +345,7 @@ class DebtProvider extends ChangeNotifier {
         orderBy: 'created_at ASC');
 
     double remaining = amount;
+    double appliedTotal = 0;
     for (final row in rows) {
       if (remaining <= 0) break;
       final debtId = row['id'] as int;
@@ -352,7 +375,9 @@ class DebtProvider extends ChangeNotifier {
           whereArgs: [debtId]);
 
       remaining -= pay;
+      appliedTotal += pay;
     }
+    return amount - appliedTotal; // Excess
   }
 
   // ── حذف دين (مع تصحيح رصيد العميل / المورد) ─────────────

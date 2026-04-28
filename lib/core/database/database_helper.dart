@@ -710,62 +710,70 @@ class DatabaseHelper {
         : await db.query('debts', orderBy: 'created_at DESC');
   }
 
-  Future<void> addDebtPayment(int debtId, double amount, String? notes) async {
+  Future<double> addDebtPayment(int debtId, double amount, String? notes) async {
     final db = await database;
+    double excess = 0;
     await db.transaction((txn) async {
       final now = DateTime.now().toIso8601String();
-      final paymentId = await txn.insert('debt_payments', {
-        'debt_id': debtId,
-        'amount': amount,
-        'notes': notes,
-        'created_at': now,
-      });
-      // تحديث paid_amount والحالة
+      
+      // جلب الدين للتأكد من المتبقي
       final rows = await txn.query('debts', where: 'id = ?', whereArgs: [debtId]);
       if (rows.isNotEmpty) {
         final debt = rows.first;
-        final newPaid = (debt['paid_amount'] as double) + amount;
         final total = debt['amount'] as double;
+        final alreadyPaid = debt['paid_amount'] as double;
+        final remaining = total - alreadyPaid;
+        
+        final double appliedAmount = (amount >= remaining) ? remaining : amount;
+        excess = amount - appliedAmount;
+
+        final paymentId = await txn.insert('debt_payments', {
+          'debt_id': debtId,
+          'amount': appliedAmount,
+          'notes': notes,
+          'created_at': now,
+        });
+
+        final newPaid = alreadyPaid + appliedAmount;
         final status = newPaid >= total ? 'paid' : 'partial';
+        
         await txn.update('debts', {
           'paid_amount': newPaid,
           'status': status,
           'updated_at': now,
         }, where: 'id = ?', whereArgs: [debtId]);
 
-        // حركة الصندوق (إذا كان دين لنا فهو دخول، وإذا كان علينا فهو خروج)
+        // حركة الصندوق (بالقيمة الفعلية المطبقة فقط)
         final debtType = debt['type'] as String;
         await txn.insert('cash_transactions', {
           'type': debtType == 'receivable' ? 'in' : 'out',
-          'amount': amount,
+          'amount': appliedAmount,
           'reference_type': 'debt_payment',
           'reference_id': paymentId,
-          'notes': 'دفعة دين لـ ${debt['person_name']}',
+          'notes': 'سداد دين - ${debt['person_name']}',
           'created_at': now,
         });
 
-        // تحديث رصيد العميل أو المورد
+        // تحديث رصيد العميل أو المورد (بالقيمة المطبقة فقط)
         if (debtType == 'receivable' && debt['customer_id'] != null) {
           await txn.rawUpdate('''
-            UPDATE customers 
-            SET current_balance = current_balance - ?, 
-                updated_at = ?
+            UPDATE customers SET current_balance = current_balance - ?, updated_at = ?
             WHERE id = ?
-          ''', [amount, now, debt['customer_id']]);
+          ''', [appliedAmount, now, debt['customer_id']]);
         } else if (debtType == 'payable' && debt['supplier_id'] != null) {
           await txn.rawUpdate('''
-            UPDATE suppliers 
-            SET current_balance = current_balance - ?, 
-                updated_at = ?
+            UPDATE suppliers SET current_balance = current_balance - ?, updated_at = ?
             WHERE id = ?
-          ''', [amount, now, debt['supplier_id']]);
+          ''', [appliedAmount, now, debt['supplier_id']]);
         }
       }
     });
+    return excess;
   }
 
-  Future<void> payCustomerDebtBulk(int customerId, double amount, String notes) async {
+  Future<double> payCustomerDebtBulk(int customerId, double amount, String notes) async {
     final db = await database;
+    double appliedTotal = 0;
     await db.transaction((txn) async {
       final now = DateTime.now().toIso8601String();
       final rows = await txn.query('debts', 
@@ -802,28 +810,31 @@ class DatabaseHelper {
         }, where: 'id = ?', whereArgs: [debtId]);
         
         remainingAmount -= paymentForThis;
+        appliedTotal += paymentForThis;
       }
       
-      await txn.rawUpdate('''
-        UPDATE customers 
-        SET current_balance = current_balance - ?, 
-            updated_at = ?
-        WHERE id = ?
-      ''', [amount, now, customerId]);
-      
-      await txn.insert('cash_transactions', {
-        'type': 'in',
-        'amount': amount,
-        'reference_type': 'bulk_debt_payment',
-        'reference_id': customerId,
-        'notes': notes,
-        'created_at': now,
-      });
+      if (appliedTotal > 0) {
+        await txn.rawUpdate('''
+          UPDATE customers SET current_balance = current_balance - ?, updated_at = ?
+          WHERE id = ?
+        ''', [appliedTotal, now, customerId]);
+        
+        await txn.insert('cash_transactions', {
+          'type': 'in',
+          'amount': appliedTotal,
+          'reference_type': 'bulk_debt_payment',
+          'reference_id': customerId,
+          'notes': '$notes (إجمالي مسدد من الحساب)',
+          'created_at': now,
+        });
+      }
     });
+    return amount - appliedTotal; // Excess
   }
 
-  Future<void> paySupplierDebtBulk(int supplierId, double amount, String notes) async {
+  Future<double> paySupplierDebtBulk(int supplierId, double amount, String notes) async {
     final db = await database;
+    double appliedTotal = 0;
     await db.transaction((txn) async {
       final now = DateTime.now().toIso8601String();
       final rows = await txn.query('debts', 
@@ -860,24 +871,26 @@ class DatabaseHelper {
         }, where: 'id = ?', whereArgs: [debtId]);
         
         remainingAmount -= paymentForThis;
+        appliedTotal += paymentForThis;
       }
       
-      await txn.rawUpdate('''
-        UPDATE suppliers 
-        SET current_balance = current_balance - ?, 
-            updated_at = ?
-        WHERE id = ?
-      ''', [amount, now, supplierId]);
-      
-      await txn.insert('cash_transactions', {
-        'type': 'out',
-        'amount': amount,
-        'reference_type': 'bulk_debt_payment',
-        'reference_id': supplierId,
-        'notes': notes,
-        'created_at': now,
-      });
+      if (appliedTotal > 0) {
+        await txn.rawUpdate('''
+          UPDATE suppliers SET current_balance = current_balance - ?, updated_at = ?
+          WHERE id = ?
+        ''', [appliedTotal, now, supplierId]);
+        
+        await txn.insert('cash_transactions', {
+          'type': 'out',
+          'amount': appliedTotal,
+          'reference_type': 'bulk_debt_payment',
+          'reference_id': supplierId,
+          'notes': '$notes (إجمالي مسدد من الحساب)',
+          'created_at': now,
+        });
+      }
     });
+    return amount - appliedTotal; // Excess
   }
 
   Future<void> syncCustomerDebts(int customerId, String name) async {

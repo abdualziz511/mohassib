@@ -30,14 +30,20 @@ class CustomerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> addCustomer(CustomerModel customer) async {
-    final id = await _db.database.then((db) => db.insert('customers', customer.toMap()));
+  Future<bool> addCustomer(CustomerModel customer) async {
+    final db = await _db.database;
+    final existing = await db.query('customers', where: 'name = ?', whereArgs: [customer.name.trim()], limit: 1);
+    if (existing.isNotEmpty) return false;
+    
+    final id = await db.insert('customers', customer.toMap());
     await _db.syncCustomerDebts(id, customer.name);
     await loadAll();
+    return true;
   }
 
-  Future<void> payDebtBulk(int customerId, double amount, String notes) async {
-    await _db.payCustomerDebtBulk(customerId, amount, notes);
+  Future<double> payDebtBulk(int customerId, double amount, String notes) async {
+    final excess = await _db.payCustomerDebtBulk(customerId, amount, notes);
     await loadAll();
+    return excess;
   }
 }

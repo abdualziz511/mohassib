@@ -265,13 +265,25 @@ class _DebtsScreenState extends State<DebtsScreen> {
         TextButton(
           onPressed: () async {
             final amt = double.tryParse(ctrl.text) ?? 0;
-            if (amt > 0 && amt <= d.remaining) {
-              final ok = await dp.addPayment(d.id!, amt, notes: notesCtrl.text.isEmpty ? null : notesCtrl.text);
-              if (ok && ctx.mounted) {
+            if (amt > 0) {
+              final excess = await dp.addPayment(d.id!, amt, notes: notesCtrl.text.isEmpty ? null : notesCtrl.text);
+              if (ctx.mounted) {
                 context.read<CustomerProvider>().loadAll();
                 context.read<SupplierProvider>().loadAll();
                 context.read<HomeProvider>().refresh();
                 Navigator.pop(ctx);
+                
+                if (excess > 0) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                    content: Text('✅ تم السداد بنجاح. يوجد مبلغ زائد: ${excess.toStringAsFixed(0)} ر.ي تم إرجاعه للمسدد.', textDirection: TextDirection.rtl),
+                    backgroundColor: Colors.orange,
+                  ));
+                } else {
+                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                    content: Text('✅ تم السداد بنجاح', textDirection: TextDirection.rtl),
+                    backgroundColor: Colors.green,
+                  ));
+                }
               }
             }
           },

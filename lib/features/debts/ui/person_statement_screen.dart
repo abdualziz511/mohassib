@@ -5,6 +5,8 @@ import '../../../core/database/database_helper.dart';
 import '../../../core/utils/pdf_service.dart';
 import '../../debts/models/debt_model.dart';
 import '../../home/home_provider.dart';
+import '../../customers/provider/customer_provider.dart';
+import '../../suppliers/provider/supplier_provider.dart';
 
 class PersonStatementScreen extends StatefulWidget {
   final String personName;
@@ -270,7 +272,7 @@ class _PersonStatementScreenState extends State<PersonStatementScreen> {
             style: ElevatedButton.styleFrom(backgroundColor: Colors.greenAccent),
             onPressed: () async {
               final amt = double.tryParse(amtCtrl.text) ?? 0;
-              if (amt <= 0 || amt > _remaining) {
+              if (amt <= 0) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('المبلغ غير صحيح'),
                     backgroundColor: Colors.red));
@@ -280,7 +282,7 @@ class _PersonStatementScreenState extends State<PersonStatementScreen> {
               Navigator.pop(ctx);
 
               final dp = context.read<DebtProvider>();
-              final ok = await dp.payAllForPerson(
+              final excess = await dp.payAllForPerson(
                 personName: widget.personName,
                 type: widget.type,
                 amount: amt,
@@ -291,11 +293,20 @@ class _PersonStatementScreenState extends State<PersonStatementScreen> {
 
               if (mounted) {
                 context.read<HomeProvider>().refresh();
+                context.read<CustomerProvider>().loadAll();
+                context.read<SupplierProvider>().loadAll();
                 _load(); // تحديث الكشف
+                
+                String msg = '✅ تم السداد وتحديث الرصيد';
+                if (excess > 0) {
+                  msg += '\nيوجد مبلغ زائد: ${excess.toStringAsFixed(0)} ر.ي لم يطبق على أي دين.';
+                }
+                
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                  content: Text(ok ? '✅ تم السداد وتحديث الرصيد' : '❌ فشل السداد',
-                    textDirection: TextDirection.rtl),
-                  backgroundColor: ok ? Colors.green : Colors.red));
+                  content: Text(msg, textDirection: TextDirection.rtl),
+                  backgroundColor: excess > 0 ? Colors.orange : Colors.green,
+                  duration: const Duration(seconds: 4),
+                ));
               }
             },
             child: const Text('سداد وتحديث الكشف',

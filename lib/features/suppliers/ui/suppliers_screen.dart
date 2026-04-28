@@ -87,16 +87,25 @@ class SuppliersScreen extends StatelessWidget {
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               if (nameCtrl.text.isNotEmpty) {
                 final now = DateTime.now().toIso8601String();
-                context.read<SupplierProvider>().addSupplier(SupplierModel(
+                final ok = await context.read<SupplierProvider>().addSupplier(SupplierModel(
                   name: nameCtrl.text,
                   phone: phoneCtrl.text,
                   createdAt: now,
                   updatedAt: now,
                 ));
-                Navigator.pop(context);
+                if (context.mounted) {
+                  if (ok) {
+                    Navigator.pop(context);
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('الاسم موجود مسبقاً! الرجاء استخدام اسم مختلف.', textDirection: TextDirection.rtl),
+                      backgroundColor: Colors.red,
+                    ));
+                  }
+                }
               }
             },
             child: const Text('حفظ'),
@@ -136,10 +145,21 @@ class SuppliersScreen extends StatelessWidget {
             onPressed: () async {
               final amt = double.tryParse(amtCtrl.text);
               if (amt != null && amt > 0 && supplier.id != null) {
-                await context.read<SupplierProvider>().payDebtBulk(supplier.id!, amt, notesCtrl.text);
+                final excess = await context.read<SupplierProvider>().payDebtBulk(supplier.id!, amt, notesCtrl.text);
                 if (ctx.mounted) {
                   context.read<HomeProvider>().refresh();
                   context.read<DebtProvider>().loadAll();
+                  
+                  String msg = '✅ تم السداد بنجاح';
+                  if (excess > 0) {
+                    msg += '\nيوجد مبلغ زائد: ${excess.toStringAsFixed(0)} ر.ي لم يطبق على أي دين.';
+                  }
+                  
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(msg, textDirection: TextDirection.rtl),
+                    backgroundColor: excess > 0 ? Colors.orange : Colors.green,
+                  ));
+                  
                   Navigator.pop(ctx);
                 }
               }

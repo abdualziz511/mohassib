@@ -518,36 +518,68 @@ class _PaymentSheetState extends State<_PaymentSheet> {
               if (custProv.customers.isEmpty) {
                 return const Text('لا يوجد عملاء مضافين، يرجى إضافة عميل من شاشة العملاء', style: TextStyle(color: Colors.redAccent, fontSize: 12));
               }
-              return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(color: const Color(0xFF111116), borderRadius: BorderRadius.circular(12)),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<int>(
-                    value: _selectedCustomerId,
-                    hint: const Text('اختر العميل', style: TextStyle(color: Colors.grey)),
-                    isExpanded: true,
-                    dropdownColor: const Color(0xFF1E1E2A),
+              
+              // عرض حقل البحث مع الاقتراحات
+              final suggestions = _nameCtrl.text.isEmpty ? [] : custProv.customers.where((c) => c.name.contains(_nameCtrl.text)).toList();
+              
+              return Column(
+                children: [
+                  TextField(
+                    controller: _nameCtrl,
+                    textAlign: TextAlign.right,
                     style: const TextStyle(color: Colors.white),
-                    items: custProv.customers.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name))).toList(),
-                    onChanged: (val) {
-                      setState(() {
-                        _selectedCustomerId = val;
-                        if (val != null) {
-                          final c = custProv.customers.firstWhere((x) => x.id == val);
-                          _nameCtrl.text = c.name;
-                          _phoneCtrl.text = c.phone ?? '';
-                        }
-                      });
-                    },
+                    decoration: InputDecoration(
+                      hintText: 'ابحث عن عميل أو اكتب اسم جديد...',
+                      hintStyle: const TextStyle(color: Colors.grey),
+                      suffixIcon: const Icon(Icons.person_search, color: Colors.cyan),
+                      filled: true, fillColor: const Color(0xFF111116),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                    ),
+                    onChanged: (v) => setState(() {}),
                   ),
-                ),
+                  if (suggestions.isNotEmpty && _selectedCustomerId == null)
+                    Container(
+                      margin: const EdgeInsets.only(top: 4),
+                      decoration: BoxDecoration(color: const Color(0xFF111116), borderRadius: BorderRadius.circular(12)),
+                      child: Column(
+                        children: suggestions.take(3).map((c) => ListTile(
+                          dense: true,
+                          title: Text(c.name, style: const TextStyle(color: Colors.white, fontSize: 13)),
+                          subtitle: Text('رصيد: ${c.currentBalance.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                          onTap: () {
+                            setState(() {
+                              _selectedCustomerId = c.id;
+                              _nameCtrl.text = c.name;
+                              _phoneCtrl.text = c.phone ?? '';
+                            });
+                          },
+                        )).toList(),
+                      ),
+                    ),
+                  if (_selectedCustomerId != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Text('تم اختيار: ${_nameCtrl.text}', style: const TextStyle(color: Colors.cyanAccent, fontSize: 12)),
+                          IconButton(
+                            icon: const Icon(Icons.close, color: Colors.redAccent, size: 16),
+                            onPressed: () => setState(() {
+                              _selectedCustomerId = null;
+                              _nameCtrl.clear();
+                              _phoneCtrl.clear();
+                            }),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               );
             },
           ),
           const SizedBox(height: 8),
-          _field(_nameCtrl, 'أو اكتب اسم العميل (جديد)', Icons.person),
-          const SizedBox(height: 8),
-          _field(_phoneCtrl, 'رقم الهاتف', Icons.phone, type: TextInputType.phone),
+          _field(_phoneCtrl, 'رقم الهاتف (اختياري)', Icons.phone, type: TextInputType.phone),
         ])),
         const SizedBox(height: 16),
         Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), child: SizedBox(width: double.infinity,
