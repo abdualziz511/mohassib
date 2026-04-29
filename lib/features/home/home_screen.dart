@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:mohassib/features/home/home_provider.dart';
 import 'package:mohassib/features/products/ui/add_product_screen.dart';
@@ -18,6 +20,7 @@ import 'package:mohassib/features/suppliers/ui/suppliers_screen.dart';
 import 'package:mohassib/features/customers/ui/customers_screen.dart';
 import 'package:mohassib/features/reports/ui/reports_screen.dart';
 import 'package:mohassib/features/reports/ui/cash_drawer_screen.dart';
+import 'package:mohassib/features/settings/ui/about_developer_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -95,10 +98,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   shape: BoxShape.circle,
                   border: Border.all(color: Colors.blueAccent, width: 2)
                 ),
-                child: const CircleAvatar(
+                child: CircleAvatar(
                   backgroundColor: Colors.blueAccent,
                   radius: 18,
-                  child: Icon(Icons.person, color: Colors.white, size: 20),
+                  backgroundImage: hp.logoPath.isNotEmpty ? FileImage(File(hp.logoPath)) : null,
+                  child: hp.logoPath.isEmpty ? const Icon(Icons.person, color: Colors.white, size: 20) : null,
                 ),
               ),
               const SizedBox(width: 12),
@@ -255,22 +259,34 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         children: [
           Center(
-            child: Container(
+            child: SizedBox(
               width: 180, height: 180,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: innerColor, width: 20),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  PieChart(
+                    PieChartData(
+                      sectionsSpace: 2,
+                      centerSpaceRadius: 70,
+                      sections: [
+                        if (hp.todayProfit > 0) PieChartSectionData(value: hp.todayProfit, color: Colors.greenAccent, radius: 15, showTitle: false),
+                        if (hp.todayExpenses > 0) PieChartSectionData(value: hp.todayExpenses, color: Colors.redAccent, radius: 15, showTitle: false),
+                        if (hp.todayReturns > 0) PieChartSectionData(value: hp.todayReturns, color: Colors.orangeAccent, radius: 15, showTitle: false),
+                        if (hp.todayProfit <= 0 && hp.todayExpenses <= 0 && hp.todayReturns <= 0)
+                          PieChartSectionData(value: 1, color: innerColor, radius: 15, showTitle: false),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                       Text('صافي الربح', style: TextStyle(color: isDark ? Colors.grey : Colors.black54, fontSize: 12)),
+                       Text('${hp.todayProfit.toStringAsFixed(0)}', style: const TextStyle(color: Colors.greenAccent, fontSize: 18, fontWeight: FontWeight.bold)),
+                    ]
+                  ),
+                ],
               ),
-              child: Center(
-                 child: Column(
-                   mainAxisAlignment: MainAxisAlignment.center,
-                   children: [
-                      Text('صافي الربح', style: TextStyle(color: isDark ? Colors.grey : Colors.black54, fontSize: 12)),
-                      Text('${hp.todayProfit.toStringAsFixed(0)} ${hp.currency}', style: const TextStyle(color: Colors.greenAccent, fontSize: 22, fontWeight: FontWeight.bold)),
-                   ]
-                 )
-              )
-            )
+            ),
           ),
           const SizedBox(height: 32),
           _statsGrid(isDark, hp, titleColor, innerColor),
@@ -306,7 +322,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
               const SizedBox(height: 24),
-              const SizedBox(height: 60, child: Center(child: Text('الرسم البياني متاح في التقارير', style: TextStyle(color: Colors.grey, fontSize: 10)))),
+              SizedBox(
+                height: 100,
+                child: BarChart(
+                  BarChartData(
+                    alignment: BarChartAlignment.spaceAround,
+                    maxY: [hp.todaySales, hp.todayExpenses, hp.todayReturns].fold(0.0, (m, v) => m > v ? m : v) * 1.2 == 0 ? 100 : [hp.todaySales, hp.todayExpenses, hp.todayReturns].fold(0.0, (m, v) => m > v ? m : v) * 1.2,
+                    barTouchData: BarTouchData(enabled: false),
+                    titlesData: FlTitlesData(show: false),
+                    gridData: FlGridData(show: false),
+                    borderData: FlBorderData(show: false),
+                    barGroups: [
+                      BarChartGroupData(x: 0, barRods: [BarChartRodData(toY: hp.todaySales, color: Colors.blueAccent, width: 16, borderRadius: BorderRadius.circular(4))]),
+                      BarChartGroupData(x: 1, barRods: [BarChartRodData(toY: hp.todayExpenses, color: Colors.redAccent, width: 16, borderRadius: BorderRadius.circular(4))]),
+                      BarChartGroupData(x: 2, barRods: [BarChartRodData(toY: hp.todayReturns, color: Colors.orangeAccent, width: 16, borderRadius: BorderRadius.circular(4))]),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -488,7 +521,21 @@ class _HomeScreenState extends State<HomeScreen> {
       child: SafeArea(child: Column(children: [
         Padding(padding: const EdgeInsets.all(20), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           InkWell(onTap: () => Navigator.pop(context), child: const Icon(Icons.close, color: Colors.redAccent)),
-          Text(hp.storeName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+          Row(
+            children: [
+              Text(hp.storeName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+              if (hp.logoPath.isNotEmpty) ...[
+                const SizedBox(width: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.file(File(hp.logoPath), width: 40, height: 40, fit: BoxFit.cover),
+                ),
+              ] else ...[
+                const SizedBox(width: 10),
+                const Icon(Icons.store, color: Colors.blueAccent),
+              ],
+            ],
+          ),
         ])),
         Expanded(child: ListView(padding: const EdgeInsets.symmetric(horizontal: 16), children: [
           _drawerItem('الإحصائيات والتقارير', Icons.insights, Colors.cyan, onTap: () {
@@ -531,6 +578,10 @@ class _HomeScreenState extends State<HomeScreen> {
           _drawerItem('إعدادات المتجر', Icons.settings, Colors.grey, onTap: () {
              Navigator.pop(context);
              Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+          }),
+          _drawerItem('عن المطور', Icons.code, Colors.blueAccent, onTap: () {
+             Navigator.pop(context);
+             Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutDeveloperScreen()));
           }),
           _drawerItem('عن التطبيق', Icons.info_outline, Colors.grey),
         ])),

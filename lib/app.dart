@@ -8,7 +8,7 @@ class MohassibApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'محاسب', // Mohassib POS
+      title: 'ROFOF', // اسم التطبيق الجديد
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,

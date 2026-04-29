@@ -465,7 +465,7 @@ class DatabaseHelper {
     return rows.isEmpty ? null : rows.first;
   }
 
-  Future<void> updateStoreSettings({String? name, double? taxRate, String? currency, String? phone, String? address}) async {
+  Future<void> updateStoreSettings({String? name, double? taxRate, String? currency, String? phone, String? address, String? logoPath}) async {
     final db = await database;
     final Map<String, dynamic> data = {};
     if (name != null) data['store_name'] = name;
@@ -473,6 +473,7 @@ class DatabaseHelper {
     if (currency != null) data['currency'] = currency;
     if (phone != null) data['phone'] = phone;
     if (address != null) data['address'] = address;
+    if (logoPath != null) data['logo_path'] = logoPath;
     data['updated_at'] = DateTime.now().toIso8601String();
     await db.update('store_settings', data, where: 'id = ?', whereArgs: [1]);
   }

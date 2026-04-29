@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -386,18 +387,31 @@ class _ProductGallery extends StatefulWidget {
 
 class _ProductGalleryState extends State<_ProductGallery> {
   String _q = '';
+  String _selectedCategory = 'الكل';
+
   @override
   Widget build(BuildContext context) {
     final pp = context.watch<ProductProvider>();
-    final list = _q.isEmpty ? pp.products : pp.products.where((p) => p.name.contains(_q) || (p.barcode ?? '').contains(_q)).toList();
+    final cart = context.watch<CartProvider>(); // نستخدم السلة لعرض المنتجات في الدرج
+
+    // 1. استخراج الأقسام
+    final categories = ['الكل', ...pp.products.map((p) => p.category).toSet().where((c) => c.isNotEmpty)];
+    
+    // 2. تصفية المنتجات
+    var list = pp.products.where((p) => p.isActive).toList();
+    if (_selectedCategory != 'الكل') list = list.where((p) => p.category == _selectedCategory).toList();
+    if (_q.isNotEmpty) list = list.where((p) => p.name.contains(_q) || (p.barcode ?? '').contains(_q)).toList();
+
     return Container(
-      height: MediaQuery.of(context).size.height * 0.85,
+      height: MediaQuery.of(context).size.height * 0.90, // زيادة الارتفاع قليلاً
       decoration: const BoxDecoration(color: Color(0xFF111116), borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       child: Column(children: [
+        // ── الهيدر ──
         Padding(padding: const EdgeInsets.all(20), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           InkWell(onTap: () => Navigator.pop(context), child: const Icon(Icons.close, color: Colors.white)),
           const Text('معرض المنتجات', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
         ])),
+        // ── البحث ──
         Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: TextField(
           textAlign: TextAlign.right,
           style: const TextStyle(color: Colors.white),
@@ -411,40 +425,130 @@ class _ProductGalleryState extends State<_ProductGallery> {
           ),
         )),
         const SizedBox(height: 12),
+        // ── شريط الأقسام السريع ──
+        SizedBox(
+          height: 40,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            reverse: true, // من اليمين لليسار
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: categories.length,
+            itemBuilder: (ctx, i) {
+              final c = categories.elementAt(i);
+              final isSel = _selectedCategory == c;
+              return GestureDetector(
+                onTap: () => setState(() => _selectedCategory = c),
+                child: Container(
+                  margin: const EdgeInsets.only(left: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isSel ? Colors.blueAccent.withOpacity(0.2) : const Color(0xFF1A1A24),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: isSel ? Colors.blueAccent : Colors.transparent),
+                  ),
+                  child: Center(child: Text(c, style: TextStyle(color: isSel ? Colors.blueAccent : Colors.grey, fontWeight: FontWeight.bold, fontSize: 13))),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        // ── المنتجات ──
         Expanded(child: list.isEmpty
           ? const Center(child: Text('لا توجد منتجات', style: TextStyle(color: Colors.grey)))
           : GridView.builder(
-              padding: const EdgeInsets.all(16),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 0.85),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 0.75),
               itemCount: list.length,
               itemBuilder: (ctx, i) {
                 final p = list[i];
-                return Container(
-                  decoration: BoxDecoration(color: const Color(0xFF1A1A24), borderRadius: BorderRadius.circular(16)),
-                  child: Column(children: [
-                    Expanded(child: Container(decoration: const BoxDecoration(color: Color(0xFF22222E), borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-                      child: Stack(children: [
-                        const Center(child: Icon(Icons.inventory_2, color: Colors.grey, size: 40)),
-                        Positioned(top: 8, right: 8, child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(color: p.isOutOfStock ? Colors.red : (p.isLowStock ? Colors.orange : Colors.green), borderRadius: BorderRadius.circular(8)),
-                          child: Text('${p.quantity} ${p.unit}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                        )),
-                      ]))),
-                    Padding(padding: const EdgeInsets.all(10), child: Column(children: [
-                      Text(p.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12), textAlign: TextAlign.center),
-                      Text('${p.sellPrice.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.cyan, fontSize: 11)),
-                      const SizedBox(height: 8),
-                      SizedBox(width: double.infinity, child: OutlinedButton(
-                        onPressed: p.isOutOfStock ? null : () { widget.onAdd(p); Navigator.pop(context); },
-                        style: OutlinedButton.styleFrom(side: BorderSide(color: p.isOutOfStock ? Colors.grey : Colors.blueAccent.withOpacity(0.5)), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                        child: Text(p.isOutOfStock ? 'نفذ' : 'إضافة', style: TextStyle(color: p.isOutOfStock ? Colors.grey : Colors.blueAccent, fontWeight: FontWeight.bold)),
-                      )),
-                    ])),
-                  ]),
+                final cartItemCount = cart.items.where((x) => x.productId == p.id).fold(0.0, (s, x) => s + x.quantity);
+                final isSelected = cartItemCount > 0;
+                return GestureDetector(
+                  onTap: p.isOutOfStock ? null : () {
+                    HapticFeedback.lightImpact(); // اهتزاز خفيف للإحساس بالسرعة
+                    widget.onAdd(p);
+                  },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1A24), 
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: isSelected ? Colors.blueAccent : Colors.transparent, width: 2),
+                    ),
+                    child: Stack(
+                      children: [
+                        Column(children: [
+                          Expanded(child: Container(decoration: const BoxDecoration(color: Color(0xFF22222E), borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+                            child: Stack(children: [
+                              Center(child: Text(p.name.isNotEmpty ? p.name.substring(0, 1) : 'م', style: const TextStyle(color: Colors.grey, fontSize: 24, fontWeight: FontWeight.bold))),
+                              if (p.isOutOfStock)
+                                Positioned.fill(child: Container(decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(16)), child: const Center(child: Text('نفذ', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold))))),
+                            ]))),
+                          Padding(padding: const EdgeInsets.all(8), child: Column(children: [
+                            Text(p.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
+                            Text('${p.sellPrice.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.cyan, fontSize: 10)),
+                          ])),
+                        ]),
+                        if (isSelected)
+                          Positioned(
+                            top: 4, right: 4,
+                            child: CircleAvatar(radius: 10, backgroundColor: Colors.blueAccent, child: Text(cartItemCount.toStringAsFixed(0), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold))),
+                          ),
+                      ],
+                    ),
+                  ),
                 );
               },
             )),
+            
+        // ── الدرج السحابي (CapCut Tray) ──
+        if (!cart.isEmpty)
+          Container(
+            height: 80,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(color: const Color(0xFF161622), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 10, offset: const Offset(0, -5))]),
+            child: Row(children: [
+              GestureDetector(
+                onTap: () => Navigator.pop(context), // العودة للسلة الرئيسية
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  decoration: BoxDecoration(color: Colors.blueAccent, borderRadius: BorderRadius.circular(20)),
+                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    const Text('تأكيد', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                    Text('${cart.total.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+                  ]),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  reverse: true,
+                  itemCount: cart.items.length,
+                  itemBuilder: (ctx, i) {
+                    final item = cart.items[i];
+                    return Container(
+                      margin: const EdgeInsets.only(left: 12),
+                      width: 45,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Container(
+                            decoration: BoxDecoration(color: const Color(0xFF22222E), shape: BoxShape.circle, border: Border.all(color: Colors.blueAccent, width: 1.5)),
+                            child: Center(child: Text(item.name.isNotEmpty ? item.name.substring(0, 1) : 'م', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                          ),
+                          Positioned(
+                            top: -2, right: -2,
+                            child: CircleAvatar(radius: 9, backgroundColor: Colors.redAccent, child: Text(item.quantity.toStringAsFixed(0), style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold))),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ]),
+          ),
       ]),
     );
   }
@@ -554,9 +658,11 @@ class _PaymentSheetState extends State<_PaymentSheet> {
   @override
   Widget build(BuildContext context) {
     final cart = context.watch<CartProvider>();
-    return Container(
-      decoration: const BoxDecoration(color: Color(0xFF1E1E2A), borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      child: SafeArea(child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(color: Color(0xFF1E1E2A), borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+        child: SafeArea(child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
         const SizedBox(height: 16),
         Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
         const SizedBox(height: 12),
@@ -670,7 +776,8 @@ class _PaymentSheetState extends State<_PaymentSheet> {
               ? const CircularProgressIndicator(color: Colors.white)
               : const Text('تأكيد البيع', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
           ))),
-      ]))),
+        ]))),
+      ),
     );
   }
 

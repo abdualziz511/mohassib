@@ -27,6 +27,7 @@ class HomeProvider extends ChangeNotifier {
   String storeName    = 'متجري';
   String ownerName    = '';
   String currency     = 'ر.ي';
+  String logoPath     = '';
 
   bool isLoading = false;
 
@@ -65,6 +66,7 @@ class HomeProvider extends ChangeNotifier {
       storeName  = settings['store_name'] as String? ?? 'متجري';
       ownerName  = settings['owner_name'] as String? ?? '';
       currency   = settings['currency']   as String? ?? 'ر.ي';
+      logoPath   = settings['logo_path']  as String? ?? '';
     }
 
     isLoading = false;

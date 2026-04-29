@@ -26,6 +26,7 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
   late final TextEditingController _lowAlert;
   late final TextEditingController _unit;
   late final TextEditingController _wholesalePrice;
+  late final TextEditingController _category;
   int? _selectedCurrencyId;
   List<ProductUnitModel> _units = [];
   bool _isLiquid = false;
@@ -52,18 +53,22 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
     _lowAlert  = TextEditingController(text: e != null ? e.lowStockAlert.toStringAsFixed(0) : '5');
     _unit      = TextEditingController(text: e?.unit ?? 'قطعة');
     _wholesalePrice = TextEditingController(text: e != null ? e.wholesalePrice.toStringAsFixed(0) : '');
+    _category  = TextEditingController(text: e?.category ?? 'عام');
     _isLiquid    = e?.isLiquid ?? false;
     _isByWeight  = e?.isByWeight ?? false;
     _selectedCurrencyId = e?.currencyId;
     _units = e?.units != null ? List.from(e!.units) : [];
     
-    Future.microtask(() => context.read<CurrencyProvider>().loadAll());
+    final cp = context.read<CurrencyProvider>();
+    Future.microtask(() => cp.loadAll());
   }
 
   @override
   void dispose() {
     _scannerController.dispose();
-    for (final c in [_name, _barcode, _buyPrice, _sellPrice, _quantity, _lowAlert, _unit]) c.dispose();
+    for (final c in [_name, _barcode, _buyPrice, _sellPrice, _quantity, _lowAlert, _unit, _category]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -141,6 +146,11 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
           const SizedBox(height: 12),
           _label('اسم المنتج *'),
           _textField(_name, 'مثال: مياه بلادي 500ml', icon: Icons.label_outline, required: true),
+          const SizedBox(height: 16),
+
+          // ── التصنيف (Autocomplete)
+          _label('التصنيف'),
+          _buildCategoryField(),
           const SizedBox(height: 16),
 
           // ── الأسعار
@@ -226,6 +236,75 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
           ]),
         ])),
       )),
+    );
+  }
+
+  Widget _buildCategoryField() {
+    final pp = context.read<ProductProvider>();
+    final allCategories = {'عام', ...pp.products.map((p) => p.category).where((c) => c.isNotEmpty)}.toList();
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: RawAutocomplete<String>(
+        textEditingController: _category,
+        focusNode: FocusNode(),
+        optionsBuilder: (TextEditingValue textEditingValue) {
+          if (textEditingValue.text.isEmpty) return const Iterable<String>.empty();
+          return allCategories.where((String option) => option.contains(textEditingValue.text));
+        },
+        onSelected: (String selection) {
+          _category.text = selection;
+        },
+        fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
+          return TextFormField(
+            controller: textEditingController,
+            focusNode: focusNode,
+            textAlign: TextAlign.right,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: 'مثال: مشروبات، بسكويتات...',
+              hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
+              suffixIcon: const Icon(Icons.category, color: Colors.white30, size: 18),
+              filled: true,
+              fillColor: const Color(0xFF1A1A24),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            ),
+          );
+        },
+        optionsViewBuilder: (context, onSelected, options) {
+          return Align(
+            alignment: Alignment.topRight,
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: MediaQuery.of(context).size.width - 40,
+                margin: const EdgeInsets.only(top: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF22222E),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.cyan.withOpacity(0.3)),
+                ),
+                child: ListView.builder(
+                  padding: EdgeInsets.zero,
+                  shrinkWrap: true,
+                  itemCount: options.length,
+                  itemBuilder: (context, index) {
+                    final option = options.elementAt(index);
+                    return InkWell(
+                      onTap: () => onSelected(option),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(option, style: const TextStyle(color: Colors.white), textAlign: TextAlign.right),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -400,6 +479,7 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
       wholesalePrice: double.tryParse(_wholesalePrice.text) ?? 0,
       quantity: double.tryParse(_quantity.text) ?? 0,
       unit: _unit.text.trim().isEmpty ? 'قطعة' : _unit.text.trim(),
+      category: _category.text.trim().isEmpty ? 'عام' : _category.text.trim(),
       currencyId: _selectedCurrencyId,
       isLiquid: _isLiquid,
       isByWeight: _isByWeight,
@@ -412,10 +492,7 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
     
     if (ok) {
       // حفظ الوحدات
-      if (productId == null) {
-        // إذا كان إضافة جديدة، نحتاج جلب الـ ID الحقيقي من القائمة المحدثة
-        productId = pp.products.first.id;
-      }
+      productId ??= pp.products.first.id;
       if (productId != null) {
         await DatabaseHelper.instance.insertProductUnits(productId, _units.map((u) => u.toMap()).toList());
       }

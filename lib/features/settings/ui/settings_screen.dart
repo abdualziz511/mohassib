@@ -3,6 +3,8 @@ import 'package:mohassib/core/database/database_helper.dart';
 import 'package:provider/provider.dart';
 import 'package:mohassib/features/sales/models/sales_models.dart';
 import 'package:mohassib/core/utils/backup_service.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -18,6 +20,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _addressCtrl = TextEditingController();
   final _taxCtrl     = TextEditingController();
   final _currencyCtrl = TextEditingController();
+  String? _logoPath;
   bool _loading = true;
 
   @override
@@ -46,8 +49,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _addressCtrl.text = s['address'] ?? '';
       _taxCtrl.text     = (s['tax_rate'] ?? 0).toString();
       _currencyCtrl.text = s['currency'] ?? 'ر.ي';
+      _logoPath         = s['logo_path'];
     }
     setState(() => _loading = false);
+  }
+
+  Future<void> _pickLogo() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+    if (image != null) {
+      setState(() {
+        _logoPath = image.path;
+      });
+    }
   }
 
   @override
@@ -67,6 +81,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Form(
                 key: _formKey,
                 child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  // ─── الشعار ─────────────────────────────────────────
+                  Center(
+                    child: GestureDetector(
+                      onTap: _pickLogo,
+                      child: Container(
+                        width: 100,
+                        height: 100,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1A1A24),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.cyan, width: 2),
+                          image: _logoPath != null && _logoPath!.isNotEmpty
+                              ? DecorationImage(image: FileImage(File(_logoPath!)), fit: BoxFit.cover)
+                              : null,
+                        ),
+                        child: _logoPath == null || _logoPath!.isEmpty
+                            ? const Icon(Icons.add_a_photo, color: Colors.cyan, size: 30)
+                            : null,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Center(child: Text('اختر شعار المتجر (يظهر في الفواتير)', style: TextStyle(color: Colors.grey, fontSize: 12))),
+                  const SizedBox(height: 24),
+
                   // ─── معلومات المتجر ───────────────────────────────
                   _sectionHeader('معلومات المتجر', Icons.store_outlined, Colors.cyanAccent),
                   const SizedBox(height: 12),
@@ -204,6 +243,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       currency: _currencyCtrl.text.trim(),
       phone:    _phoneCtrl.text.trim(),
       address:  _addressCtrl.text.trim(),
+      logoPath: _logoPath,
     );
     if (!mounted) return;
     context.read<CartProvider>().loadTaxRate();
