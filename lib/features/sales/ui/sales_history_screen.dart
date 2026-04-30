@@ -245,7 +245,22 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     }
   }
 
-  void _showSaleDetails(SaleModel sale) {
+  void _showSaleDetails(SaleModel sale) async {
+    // جلب الأصناف إذا لم تكن موجودة (Lazy Loading) لزيادة سرعة القائمة
+    List<SaleItemModel> items = sale.items;
+    if (items.isEmpty) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => const Center(child: CircularProgressIndicator(color: Colors.cyan)),
+      );
+      final rawItems = await DatabaseHelper.instance.getSaleItems(sale.id!);
+      if (mounted) Navigator.pop(context); // إغلاق مؤشر التحميل
+      items = rawItems.map((m) => SaleItemModel.fromMap(m)).toList();
+    }
+
+    if (!mounted) return;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1A1A24),
@@ -274,7 +289,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 
             // الأصناف
             Expanded(child: ListView(controller: scrollCtrl, children: [
-              ...sale.items.map((it) => Padding(
+              ...items.map((it) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 child: Row(children: [
                   Text('${it.total.toStringAsFixed(0)} ر.ي',
@@ -320,7 +335,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               )),
               const SizedBox(width: 12),
               Expanded(child: ElevatedButton.icon(
-                onPressed: () => _handleReturn(sale),
+                onPressed: () => _handleReturn(sale, items),
                 icon: const Icon(Icons.assignment_return_outlined, size: 18),
                 label: const Text('إرجاع'),
                 style: ElevatedButton.styleFrom(
@@ -332,7 +347,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               Expanded(child: ElevatedButton.icon(
                 onPressed: () async {
                   Navigator.pop(ctx);
-                  await PdfService.generateInvoice(sale, sale.items);
+                  await PdfService.generateInvoice(sale, items);
                 },
                 icon: const Icon(Icons.print, size: 18),
                 label: const Text('طباعة'),
@@ -348,7 +363,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     );
   }
 
-  void _handleReturn(SaleModel sale) {
+  void _handleReturn(SaleModel sale, List<SaleItemModel> items) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -363,7 +378,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               Navigator.pop(ctx); // إغلاق الديالوج
               Navigator.pop(context); // إغلاق المودال
 
-              final itemsData = sale.items.map((it) => {
+              final itemsData = items.map((it) => {
                 'product_id': it.productId,
                 'product_name': it.productName,
                 'quantity': it.quantity,

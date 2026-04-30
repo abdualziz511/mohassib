@@ -34,43 +34,55 @@ class HomeProvider extends ChangeNotifier {
   String get today => DateTime.now().toIso8601String().substring(0, 10);
 
   Future<void> loadDashboard() async {
+    if (isLoading) return; // منع الطلبات المتكررة
     isLoading = true;
     notifyListeners();
 
-    // تشغيل الاستعلامات بالتوازي
-    final results = await Future.wait([
-      _db.getDailyStats(today),
-      _db.getDebtsSummary(),
-      _db.getSales(dateFilter: today),
-      _db.getStoreSettings(),
-    ]);
+    try {
+      // تشغيل الاستعلامات بالتوازي لتقليل زمن الانتظار
+      final results = await Future.wait([
+        _db.getDailyStats(today),
+        _db.getDebtsSummary(),
+        _db.getSales(dateFilter: today),
+        _db.getStoreSettings(),
+      ]);
 
-    final stats    = results[0] as Map<String, double>;
-    final debts    = results[1] as Map<String, double>;
-    final salesRows = results[2] as List<Map<String, dynamic>>;
-    final settings = results[3] as Map<String, dynamic>?;
+      final stats    = results[0] as Map<String, double>;
+      final debts    = results[1] as Map<String, double>;
+      final salesRows = results[2] as List<Map<String, dynamic>>;
+      final settings = results[3] as Map<String, dynamic>?;
 
-    todaySales        = stats['sales']         ?? 0;
-    todayExpenses     = stats['expenses']      ?? 0;
-    todayReturns      = stats['returns']       ?? 0;
-    todayGrossProfit  = stats['gross_profit']  ?? 0;
-    todayProfit       = stats['net_profit']    ?? 0;
-    todayCount        = stats['count']         ?? 0;
+      todaySales        = stats['sales']         ?? 0;
+      todayExpenses     = stats['expenses']      ?? 0;
+      todayReturns      = stats['returns']       ?? 0;
+      todayGrossProfit  = stats['gross_profit']  ?? 0;
+      todayProfit       = stats['net_profit']    ?? 0;
+      todayCount        = stats['count']         ?? 0;
 
-    totalReceivable = debts['receivable'] ?? 0;
-    totalPayable    = debts['payable']    ?? 0;
+      totalReceivable = debts['receivable'] ?? 0;
+      totalPayable    = debts['payable']    ?? 0;
 
-    recentSales = salesRows.take(10).map(SaleModel.fromMap).toList();
+      recentSales = salesRows.take(10).map((m) {
+        try {
+          return SaleModel.fromMap(m);
+        } catch (e) {
+          debugPrint('Error mapping sale: $e');
+          return null;
+        }
+      }).whereType<SaleModel>().toList();
 
-    if (settings != null) {
-      storeName  = settings['store_name'] as String? ?? 'متجري';
-      ownerName  = settings['owner_name'] as String? ?? '';
-      currency   = settings['currency']   as String? ?? 'ر.ي';
-      logoPath   = settings['logo_path']  as String? ?? '';
+      if (settings != null) {
+        storeName  = settings['store_name'] as String? ?? 'متجري';
+        ownerName  = settings['owner_name'] as String? ?? '';
+        currency   = settings['currency']   as String? ?? 'ر.ي';
+        logoPath   = settings['logo_path']  as String? ?? '';
+      }
+    } catch (e) {
+      debugPrint('Error loading dashboard: $e');
+    } finally {
+      isLoading = false;
+      notifyListeners();
     }
-
-    isLoading = false;
-    notifyListeners();
   }
 
   // يُستدعى بعد كل عملية بيع/مصروف/دين لتحديث الأرقام فوراً

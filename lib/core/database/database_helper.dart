@@ -36,7 +36,7 @@ class DatabaseHelper {
       return databaseFactory.openDatabase(path, options: options);
     }(
       path,
-      version: 8,
+      version: 9,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onConfigure: (db) async => await db.execute('PRAGMA foreign_keys = ON'),
@@ -207,6 +207,27 @@ class DatabaseHelper {
         )
       ''');
     }
+
+    if (oldVersion < 9) {
+      // إضافة الفهارس المفقودة لتحسين الأداء
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_suppliers_name ON suppliers(name)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_product_units_pid ON product_units(product_id)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_sales_customer_id ON sales(customer_id)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_sale_items_sid ON sale_items(sale_id)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(created_at)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_debts_person_name ON debts(person_name)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_debts_customer_id ON debts(customer_id)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_debts_supplier_id ON debts(supplier_id)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_debts_status ON debts(status)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_debt_payments_did ON debt_payments(debt_id)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_cash_transactions_date ON cash_transactions(created_at)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_purchases_supplier_id ON purchases(supplier_id)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_purchase_items_pid ON purchase_items(purchase_id)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_stock_movements_pid ON stock_movements(product_id)'); } catch(_) {}
+      try { await db.execute('CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(created_at)'); } catch(_) {}
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -252,6 +273,7 @@ class DatabaseHelper {
         updated_at      TEXT    NOT NULL
       )
     ''');
+    await db.execute('CREATE INDEX idx_suppliers_name ON suppliers(name)');
 
     // 4. العملاء
     await db.execute('''
@@ -266,6 +288,7 @@ class DatabaseHelper {
         updated_at      TEXT    NOT NULL
       )
     ''');
+    await db.execute('CREATE INDEX idx_customers_name ON customers(name)');
 
     // 5. المنتجات
     await db.execute('''
@@ -291,6 +314,7 @@ class DatabaseHelper {
     ''');
     await db.execute('CREATE INDEX idx_products_barcode ON products(barcode)');
     await db.execute('CREATE INDEX idx_products_active  ON products(is_active)');
+    await db.execute('CREATE INDEX idx_products_name    ON products(name)');
 
     // 6. وحدات المنتجات
     await db.execute('''
@@ -304,6 +328,7 @@ class DatabaseHelper {
         price_markup      REAL    NOT NULL DEFAULT 0.0
       )
     ''');
+    await db.execute('CREATE INDEX idx_product_units_pid ON product_units(product_id)');
 
     // 7. الفواتير
     await db.execute('''
@@ -322,7 +347,8 @@ class DatabaseHelper {
         created_at      TEXT    NOT NULL
       )
     ''');
-    await db.execute('CREATE INDEX idx_sales_date   ON sales(created_at)');
+    await db.execute('CREATE INDEX idx_sales_date       ON sales(created_at)');
+    await db.execute('CREATE INDEX idx_sales_customer_id ON sales(customer_id)');
 
     // 8. تفاصيل الفاتورة
     await db.execute('''
@@ -338,6 +364,7 @@ class DatabaseHelper {
         total         REAL    NOT NULL
       )
     ''');
+    await db.execute('CREATE INDEX idx_sale_items_sid ON sale_items(sale_id)');
 
     // 9. المصروفات
     await db.execute('''
@@ -349,6 +376,7 @@ class DatabaseHelper {
         created_at  TEXT    NOT NULL
       )
     ''');
+    await db.execute('CREATE INDEX idx_expenses_date ON expenses(created_at)');
 
     // 10. الديون
     await db.execute('''
@@ -370,6 +398,10 @@ class DatabaseHelper {
         updated_at      TEXT    NOT NULL
       )
     ''');
+    await db.execute('CREATE INDEX idx_debts_person_name ON debts(person_name)');
+    await db.execute('CREATE INDEX idx_debts_customer_id ON debts(customer_id)');
+    await db.execute('CREATE INDEX idx_debts_supplier_id ON debts(supplier_id)');
+    await db.execute('CREATE INDEX idx_debts_status      ON debts(status)');
 
     // 11. سداد الديون
     await db.execute('''
@@ -381,6 +413,7 @@ class DatabaseHelper {
         created_at  TEXT    NOT NULL
       )
     ''');
+    await db.execute('CREATE INDEX idx_debt_payments_did ON debt_payments(debt_id)');
 
     // 12. حركة الصندوق
     await db.execute('''
@@ -394,6 +427,7 @@ class DatabaseHelper {
         created_at      TEXT    NOT NULL
       )
     ''');
+    await db.execute('CREATE INDEX idx_cash_transactions_date ON cash_transactions(created_at)');
 
     // 13. المشتريات
     await db.execute('''
@@ -408,6 +442,8 @@ class DatabaseHelper {
         created_at      TEXT    NOT NULL
       )
     ''');
+    await db.execute('CREATE INDEX idx_purchases_date ON purchases(created_at)');
+    await db.execute('CREATE INDEX idx_purchases_supplier_id ON purchases(supplier_id)');
 
     // 14. أصناف المشتريات
     await db.execute('''
@@ -423,6 +459,7 @@ class DatabaseHelper {
         total         REAL    NOT NULL
       )
     ''');
+    await db.execute('CREATE INDEX idx_purchase_items_pid ON purchase_items(purchase_id)');
 
     // 15. سجل حركات المخزون
     await db.execute('''
@@ -434,6 +471,52 @@ class DatabaseHelper {
         reference_id  INTEGER,
         notes         TEXT,
         created_at    TEXT    NOT NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_stock_movements_pid ON stock_movements(product_id)');
+    await db.execute('CREATE INDEX idx_stock_movements_date ON stock_movements(created_at)');
+
+    // 16. المرتجعات
+    await db.execute('''
+      CREATE TABLE returns (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        sale_id         INTEGER,
+        sale_number     TEXT,
+        total_amount    REAL    NOT NULL,
+        payment_method  TEXT    NOT NULL,
+        notes           TEXT,
+        created_at      TEXT    NOT NULL,
+        FOREIGN KEY (sale_id) REFERENCES sales (id) ON DELETE SET NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_returns_date ON returns(created_at)');
+
+    // 17. أصناف المرتجعات
+    await db.execute('''
+      CREATE TABLE return_items (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        return_id     INTEGER NOT NULL,
+        product_id    INTEGER NOT NULL,
+        product_name  TEXT    NOT NULL,
+        quantity      REAL    NOT NULL,
+        price         REAL    NOT NULL,
+        total         REAL    NOT NULL,
+        FOREIGN KEY (return_id) REFERENCES returns (id) ON DELETE CASCADE
+      )
+    ''');
+
+    // 18. جلسات الصندوق
+    await db.execute('''
+      CREATE TABLE cash_sessions (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        opening_balance   REAL    NOT NULL DEFAULT 0.0,
+        closing_balance   REAL,
+        actual_cash       REAL,
+        difference        REAL,
+        status            TEXT    NOT NULL DEFAULT 'open',
+        notes             TEXT,
+        opened_at         TEXT    NOT NULL,
+        closed_at         TEXT
       )
     ''');
 
@@ -686,16 +769,12 @@ class DatabaseHelper {
     return await db.query('sale_items', where: 'sale_id = ?', whereArgs: [saleId]);
   }
 
-  Future<List<dynamic>> getSalesHistory() async {
+  Future<List<dynamic>> getSalesHistory({bool fetchItems = false}) async {
     final db = await database;
     final List<Map<String, dynamic>> salesMaps = await db.query('sales', orderBy: 'created_at DESC');
     
-    // سنقوم بتحويل كل خريطة إلى SaleModel لاحقاً في الـ UI أو هنا
-    // للتبسيط حالياً، سنعيد البيانات ونترك للـ SaleModel.fromMap المهمة
-    // لكن SaleModel يحتاج لقائمة items، لذا سنجلبها لكل فاتورة
-    
-    // ملاحظة: من الأفضل استيراد SaleModel هنا إذا لزم الأمر، 
-    // لكن لتجنب التعارضات الدائرية، سنعيد الخرائط مطورة
+    if (!fetchItems) return salesMaps;
+
     List<Map<String, dynamic>> fullSales = [];
     for (var m in salesMaps) {
       var map = Map<String, dynamic>.from(m);
@@ -712,6 +791,7 @@ class DatabaseHelper {
     DateTime? to,
     String? paymentMethod,
     String? customerName,
+    bool fetchItems = false,
   }) async {
     final db = await database;
     final where = <String>[];
@@ -740,6 +820,8 @@ class DatabaseHelper {
       whereArgs: args.isEmpty ? null : args,
       orderBy: 'created_at DESC',
     );
+
+    if (!fetchItems) return salesMaps;
 
     List<Map<String, dynamic>> fullSales = [];
     for (var m in salesMaps) {
@@ -1073,6 +1155,63 @@ class DatabaseHelper {
     });
   }
 
+  /// مزامنة كافة الديون غير المرتبطة مع العملاء والموردين دفعة واحدة (محسن)
+  Future<void> syncAllAnonymousDebts() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      // جلب الأسماء الفريدة التي لديها ديون غير مرتبطة
+      final anonDebts = await txn.rawQuery('''
+        SELECT DISTINCT person_name, type 
+        FROM debts 
+        WHERE (customer_id IS NULL AND supplier_id IS NULL) 
+        AND status != 'paid'
+      ''');
+
+      for (final row in anonDebts) {
+        final name = row['person_name'] as String;
+        final type = row['type'] as String;
+
+        if (type == 'receivable') {
+          final customer = await txn.query('customers', where: 'name = ?', whereArgs: [name], limit: 1);
+          if (customer.isNotEmpty) {
+            final customerId = customer.first['id'] as int;
+            final debts = await txn.query('debts', 
+              where: 'type = ? AND person_name = ? AND customer_id IS NULL AND status != ?',
+              whereArgs: ['receivable', name, 'paid']
+            );
+
+            double totalRemaining = 0.0;
+            for (final d in debts) {
+              totalRemaining += (d['amount'] as double) - (d['paid_amount'] as double);
+              await txn.update('debts', {'customer_id': customerId}, where: 'id = ?', whereArgs: [d['id']]);
+            }
+            if (totalRemaining > 0) {
+              await txn.rawUpdate('UPDATE customers SET current_balance = current_balance + ? WHERE id = ?', [totalRemaining, customerId]);
+            }
+          }
+        } else if (type == 'payable') {
+          final supplier = await txn.query('suppliers', where: 'name = ?', whereArgs: [name], limit: 1);
+          if (supplier.isNotEmpty) {
+            final supplierId = supplier.first['id'] as int;
+            final debts = await txn.query('debts', 
+              where: 'type = ? AND person_name = ? AND supplier_id IS NULL AND status != ?',
+              whereArgs: ['payable', name, 'paid']
+            );
+
+            double totalRemaining = 0.0;
+            for (final d in debts) {
+              totalRemaining += (d['amount'] as double) - (d['paid_amount'] as double);
+              await txn.update('debts', {'supplier_id': supplierId}, where: 'id = ?', whereArgs: [d['id']]);
+            }
+            if (totalRemaining > 0) {
+              await txn.rawUpdate('UPDATE suppliers SET current_balance = current_balance + ? WHERE id = ?', [totalRemaining, supplierId]);
+            }
+          }
+        }
+      }
+    });
+  }
+
   Future<int> deleteDebt(int id) async {
     final db = await database;
     return await db.delete('debts', where: 'id = ?', whereArgs: [id]);
@@ -1166,7 +1305,7 @@ class DatabaseHelper {
       'returns':      returns,
       'gross_profit': actualGrossProfit,
       'net_profit':   actualGrossProfit - expenses,
-      'count': (salesResult.first['count'] as int?)?.toDouble() ?? 0,
+      'count': (salesResult.first['count'] as num?)?.toDouble() ?? 0,
     };
   }
 

@@ -15,15 +15,10 @@ class CustomerProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    final db = await _db.database;
-    final List<Map<String, dynamic>> maps = await db.query('customers', orderBy: 'name ASC');
+    // Batch sync anonymous debts once instead of per-customer
+    await _db.syncAllAnonymousDebts();
     
-    // Auto-sync legacy debts
-    for (var m in maps) {
-      await _db.syncCustomerDebts(m['id'] as int, m['name'] as String);
-    }
-    
-    final List<Map<String, dynamic>> syncedMaps = await db.query('customers', orderBy: 'name ASC');
+    final syncedMaps = await (await _db.database).query('customers', orderBy: 'name ASC');
     _customers = syncedMaps.map((m) => CustomerModel.fromMap(m)).toList();
 
     _isLoading = false;

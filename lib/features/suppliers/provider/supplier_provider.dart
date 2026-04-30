@@ -13,12 +13,9 @@ class SupplierProvider extends ChangeNotifier {
   Future<void> loadAll() async {
     isLoading = true;
     notifyListeners();
-    final rows = await _db.getAllSuppliers();
     
-    // Auto-sync legacy debts
-    for (var r in rows) {
-      await _db.syncSupplierDebts(r['id'] as int, r['name'] as String);
-    }
+    // Batch sync anonymous debts once instead of per-supplier
+    await _db.syncAllAnonymousDebts();
     
     final syncedRows = await _db.getAllSuppliers();
     _suppliers = syncedRows.map(SupplierModel.fromMap).toList();
