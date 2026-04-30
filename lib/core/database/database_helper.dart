@@ -902,7 +902,65 @@ class DatabaseHelper {
     final now = DateTime.now().toIso8601String();
     data['created_at'] = now;
     data['updated_at'] = now;
-    return await db.insert('debts', data);
+
+    int debtId = 0;
+    await db.transaction((txn) async {
+      debtId = await txn.insert('debts', data);
+
+      final type = data['type'] as String;
+      final amount = (data['amount'] as num).toDouble();
+      final paid = (data['paid_amount'] as num?)?.toDouble() ?? 0.0;
+      final remaining = amount - paid;
+
+      if (remaining != 0) {
+        if (type == 'receivable' && data['customer_id'] != null) {
+          await txn.rawUpdate(
+            'UPDATE customers SET current_balance = current_balance + ?, updated_at = ? WHERE id = ?',
+            [remaining, now, data['customer_id']]
+          );
+        } else if (type == 'payable' && data['supplier_id'] != null) {
+          await txn.rawUpdate(
+            'UPDATE suppliers SET current_balance = current_balance + ?, updated_at = ? WHERE id = ?',
+            [remaining, now, data['supplier_id']]
+          );
+        }
+      }
+    });
+    return debtId;
+  }
+
+  Future<void> updateDebt(int id, Map<String, dynamic> data) async {
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+    data['updated_at'] = now;
+
+    await db.transaction((txn) async {
+      final oldRows = await txn.query('debts', where: 'id = ?', whereArgs: [id]);
+      if (oldRows.isEmpty) return;
+      final old = oldRows.first;
+
+      // 1. عكس الرصيد القديم
+      final oldRemaining = (old['amount'] as double) - (old['paid_amount'] as double);
+      if (old['type'] == 'receivable' && old['customer_id'] != null) {
+        await txn.rawUpdate('UPDATE customers SET current_balance = current_balance - ? WHERE id = ?', [oldRemaining, old['customer_id']]);
+      } else if (old['type'] == 'payable' && old['supplier_id'] != null) {
+        await txn.rawUpdate('UPDATE suppliers SET current_balance = current_balance - ? WHERE id = ?', [oldRemaining, old['supplier_id']]);
+      }
+
+      // 2. تحديث الدين
+      await txn.update('debts', data, where: 'id = ?', whereArgs: [id]);
+
+      // 3. تطبيق الرصيد الجديد
+      final updatedRows = await txn.query('debts', where: 'id = ?', whereArgs: [id]);
+      final updated = updatedRows.first;
+      final newRemaining = (updated['amount'] as double) - (updated['paid_amount'] as double);
+
+      if (updated['type'] == 'receivable' && updated['customer_id'] != null) {
+        await txn.rawUpdate('UPDATE customers SET current_balance = current_balance + ? WHERE id = ?', [newRemaining, updated['customer_id']]);
+      } else if (updated['type'] == 'payable' && updated['supplier_id'] != null) {
+        await txn.rawUpdate('UPDATE suppliers SET current_balance = current_balance + ? WHERE id = ?', [newRemaining, updated['supplier_id']]);
+      }
+    });
   }
 
   Future<List<Map<String, dynamic>>> getDebts({String? type}) async {
@@ -1214,7 +1272,65 @@ class DatabaseHelper {
 
   Future<int> deleteDebt(int id) async {
     final db = await database;
-    return await db.delete('debts', where: 'id = ?', whereArgs: [id]);
+    int result = 0;
+    await db.transaction((txn) async {
+      final rows = await txn.query('debts', where: 'id = ?', whereArgs: [id]);
+      if (rows.isNotEmpty) {
+        final debt = rows.first;
+        final remaining = (debt['amount'] as double) - (debt['paid_amount'] as double);
+
+        // عكس الرصيد قبل الحذف
+        if (remaining != 0) {
+          if (debt['type'] == 'receivable' && debt['customer_id'] != null) {
+            await txn.rawUpdate('UPDATE customers SET current_balance = current_balance - ? WHERE id = ?', [remaining, debt['customer_id']]);
+          } else if (debt['type'] == 'payable' && debt['supplier_id'] != null) {
+            await txn.rawUpdate('UPDATE suppliers SET current_balance = current_balance - ? WHERE id = ?', [remaining, debt['supplier_id']]);
+          }
+        }
+        
+        // حذف المدفوعات المرتبطة أيضاً يدوياً لضمان الدقة (رغم وجود ON DELETE CASCADE)
+        await txn.delete('debt_payments', where: 'debt_id = ?', whereArgs: [id]);
+        result = await txn.delete('debts', where: 'id = ?', whereArgs: [id]);
+      }
+    });
+    return result;
+  }
+
+  Future<void> deleteDebtPayment(int paymentId) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final pRows = await txn.query('debt_payments', where: 'id = ?', whereArgs: [paymentId]);
+      if (pRows.isEmpty) return;
+      final payment = pRows.first;
+      final amount = payment['amount'] as double;
+      final debtId = payment['debt_id'] as int;
+
+      final dRows = await txn.query('debts', where: 'id = ?', whereArgs: [debtId]);
+      if (dRows.isEmpty) return;
+      final debt = dRows.first;
+
+      // 1. تحديث مبلغ الدين المدفوع
+      final newPaid = (debt['paid_amount'] as double) - amount;
+      final status = newPaid <= 0 ? 'pending' : 'partial';
+      await txn.update('debts', {
+        'paid_amount': newPaid,
+        'status': status,
+        'updated_at': DateTime.now().toIso8601String()
+      }, where: 'id = ?', whereArgs: [debtId]);
+
+      // 2. تحديث رصيد الشخص (إعادة المبلغ المستقطع للرصيد)
+      if (debt['type'] == 'receivable' && debt['customer_id'] != null) {
+        await txn.rawUpdate('UPDATE customers SET current_balance = current_balance + ? WHERE id = ?', [amount, debt['customer_id']]);
+      } else if (debt['type'] == 'payable' && debt['supplier_id'] != null) {
+        await txn.rawUpdate('UPDATE suppliers SET current_balance = current_balance + ? WHERE id = ?', [amount, debt['supplier_id']]);
+      }
+
+      // 3. حذف حركة الصندوق المرتبطة
+      await txn.delete('cash_transactions', where: 'reference_type = ? AND reference_id = ?', whereArgs: ['debt_payment', paymentId]);
+
+      // 4. حذف السجل
+      await txn.delete('debt_payments', where: 'id = ?', whereArgs: [paymentId]);
+    });
   }
 
   Future<List<Map<String, dynamic>>> getPersonStatement(String personName, String type) async {

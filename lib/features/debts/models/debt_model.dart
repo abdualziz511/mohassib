@@ -203,76 +203,46 @@ class DebtProvider extends ChangeNotifier {
     bool createNewPerson = false,   // إذا لم يوجد → إنشاء سجل جديد
   }) async {
     try {
-      final db = await _db.database;
       final now = DateTime.now().toIso8601String();
-
       int? customerId = existingCustomerId;
       int? supplierId = existingSupplierId;
 
-      // إنشاء شخص جديد إذا طُلب ذلك (مع التحقق من التكرار لتجنب مضاعفة السجلات)
+      // إنشاء شخص جديد إذا طُلب ذلك
       if (createNewPerson) {
+        final db = await _db.database;
         if (type == 'receivable') {
-          // التحقق من وجود العميل بالاسم أولاً
           final existing = await db.query('customers', where: 'name = ?', whereArgs: [personName.trim()], limit: 1);
           if (existing.isNotEmpty) {
             customerId = existing.first['id'] as int;
-            // تحديث الرصيد للعميل الموجود بدلاً من إنشاء جديد
-            await db.rawUpdate('''
-              UPDATE customers SET current_balance = current_balance + ?, updated_at = ?
-              WHERE id = ?
-            ''', [amount, now, customerId]);
           } else {
             customerId = await db.insert('customers', {
-              'name': personName,
+              'name': personName.trim(),
               'phone': phone,
-              'current_balance': amount,
+              'current_balance': 0.0, // سيتم تحديثه بواسطة insertDebt
               'created_at': now,
               'updated_at': now,
             });
           }
         } else {
-          // التحقق من وجود المورد بالاسم أولاً
           final existing = await db.query('suppliers', where: 'name = ?', whereArgs: [personName.trim()], limit: 1);
           if (existing.isNotEmpty) {
             supplierId = existing.first['id'] as int;
-            await db.rawUpdate('''
-              UPDATE suppliers SET current_balance = current_balance + ?, updated_at = ?
-              WHERE id = ?
-            ''', [amount, now, supplierId]);
           } else {
             supplierId = await db.insert('suppliers', {
-              'name': personName,
+              'name': personName.trim(),
               'phone': phone,
-              'current_balance': amount,
+              'current_balance': 0.0,
               'created_at': now,
               'updated_at': now,
             });
           }
         }
-      } else if (customerId != null) {
-        // تحديث رصيد العميل الموجود
-        await db.rawUpdate('''
-          UPDATE customers SET current_balance = current_balance + ?, updated_at = ?
-          WHERE id = ?
-        ''', [amount, now, customerId]);
-
-        // تحديث الاسم والهاتف في الذاكرة (للعرض)
-        final idx = _customers.indexWhere((c) => c.id == customerId);
-        if (idx != -1 && (phone != null && phone.isNotEmpty)) {
-          await db.update('customers', {'phone': phone, 'updated_at': now},
-              where: 'id = ?', whereArgs: [customerId]);
-        }
-      } else if (supplierId != null) {
-        await db.rawUpdate('''
-          UPDATE suppliers SET current_balance = current_balance + ?, updated_at = ?
-          WHERE id = ?
-        ''', [amount, now, supplierId]);
       }
 
-      // إدراج الدين
-      await db.insert('debts', {
+      // استخدام الطريقة المركزية في DatabaseHelper التي تضمن تحديث الأرصدة
+      await _db.insertDebt({
         'type': type,
-        'person_name': personName,
+        'person_name': personName.trim(),
         'phone': phone,
         'amount': amount,
         'paid_amount': 0.0,
@@ -282,8 +252,6 @@ class DebtProvider extends ChangeNotifier {
         'whatsapp_alert': whatsappAlert ? 1 : 0,
         'customer_id': customerId,
         'supplier_id': supplierId,
-        'created_at': now,
-        'updated_at': now,
       });
 
       await loadAll();
@@ -383,27 +351,8 @@ class DebtProvider extends ChangeNotifier {
   // ── حذف دين (مع تصحيح رصيد العميل / المورد) ─────────────
   Future<bool> deleteDebt(DebtModel debt) async {
     try {
-      final db = await _db.database;
-      final now = DateTime.now().toIso8601String();
-
-      // استرداد الرصيد المتبقي قبل الحذف
-      final remaining = debt.remaining;
-
-      if (remaining > 0) {
-        if (debt.customerId != null) {
-          await db.rawUpdate('''
-            UPDATE customers SET current_balance = current_balance - ?, updated_at = ?
-            WHERE id = ?
-          ''', [remaining, now, debt.customerId]);
-        } else if (debt.supplierId != null) {
-          await db.rawUpdate('''
-            UPDATE suppliers SET current_balance = current_balance - ?, updated_at = ?
-            WHERE id = ?
-          ''', [remaining, now, debt.supplierId]);
-        }
-      }
-
-      await db.delete('debts', where: 'id = ?', whereArgs: [debt.id]);
+      if (debt.id == null) return false;
+      await _db.deleteDebt(debt.id!);
       await loadAll();
       return true;
     } catch (e) {
