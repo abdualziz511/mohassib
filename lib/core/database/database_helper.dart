@@ -1740,4 +1740,9 @@ class DatabaseHelper {
       }
     });
   }
+
+  Future<int> deleteProductUnits(int productId) async {
+    final db = await database;
+    return await db.delete('product_units', where: 'product_id = ?', whereArgs: [productId]);
+  }
 }

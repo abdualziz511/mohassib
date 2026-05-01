@@ -51,21 +51,24 @@ class ProductProvider extends ChangeNotifier {
 
   Future<ProductModel?> getByBarcode(String barcode) => _repo.getByBarcode(barcode);
 
-  Future<bool> addProduct(ProductModel p) async {
+  Future<bool> addProduct(ProductModel p, List<ProductUnitModel> units) async {
     try {
-      final id = await _repo.insert(p);
-      final newP = p.copyWith(id: id);
+      final id = await _repo.insertWithUnits(p, units);
+      final newP = p.copyWith(id: id, units: units);
       _all.insert(0, newP);
       notifyListeners();
       return true;
     } catch (_) { return false; }
   }
 
-  Future<bool> updateProduct(ProductModel p) async {
+  Future<bool> updateProduct(ProductModel p, List<ProductUnitModel> units) async {
     try {
-      await _repo.update(p);
+      await _repo.updateWithUnits(p, units);
       final i = _all.indexWhere((x) => x.id == p.id);
-      if (i != -1) { _all[i] = p; notifyListeners(); }
+      if (i != -1) { 
+        _all[i] = p.copyWith(units: units); 
+        notifyListeners(); 
+      }
       return true;
     } catch (_) { return false; }
   }

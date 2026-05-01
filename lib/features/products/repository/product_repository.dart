@@ -23,5 +23,21 @@ class ProductRepository {
 
   Future<void> update(ProductModel p) => _db.updateProduct(p.id!, p.toMap());
 
+  Future<int> insertWithUnits(ProductModel p, List<ProductUnitModel> units) async {
+    final id = await _db.insertProduct(p.toMap());
+    if (units.isNotEmpty) {
+      await _db.insertProductUnits(id, units.map((u) => u.toMap()).toList());
+    }
+    return id;
+  }
+
+  Future<void> updateWithUnits(ProductModel p, List<ProductUnitModel> units) async {
+    await _db.updateProduct(p.id!, p.toMap());
+    await _db.deleteProductUnits(p.id!);
+    if (units.isNotEmpty) {
+      await _db.insertProductUnits(p.id!, units.map((u) => u.toMap()).toList());
+    }
+  }
+
   Future<void> delete(int id) => _db.softDeleteProduct(id);
 }
