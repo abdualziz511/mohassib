@@ -29,6 +29,7 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
   late final TextEditingController _unit;
   late final TextEditingController _wholesalePrice;
   late final TextEditingController _category;
+  final FocusNode _categoryFocusNode = FocusNode();
 
   // Smart Unit Controllers
   late final TextEditingController _bulkUnitName;
@@ -72,7 +73,6 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
     if (e != null) {
       if (e.isByWeight) _uiType = ProductUiType.weighted;
       else if (e.isLiquid) _uiType = ProductUiType.liquid;
-      else if (e.units.isNotEmpty) _uiType = ProductUiType.bulk;
     }
 
     final cp = context.read<CurrencyProvider>();
@@ -85,6 +85,7 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
     _name.dispose(); _barcode.dispose(); _buyPrice.dispose(); _sellPrice.dispose();
     _quantity.dispose(); _lowAlert.dispose(); _unit.dispose(); _category.dispose();
     _bulkUnitName.dispose(); _bulkFactor.dispose();
+    _categoryFocusNode.dispose();
     super.dispose();
   }
 
@@ -116,8 +117,8 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
                       const SizedBox(height: 24),
                       _sectionTitle('الأسعار والمخزون', Icons.payments_outlined),
                       _buildPricingInfo(),
-                      const SizedBox(height: 24),
-                      _buildSmartUnitSection(),
+                      const SizedBox(height: 20),
+                      _buildMultiUnitSection(),
                       const SizedBox(height: 32),
                       _buildActionButtons(),
                     ],
@@ -183,7 +184,7 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
           _uiType = type;
           if (type == ProductUiType.weighted) _unit.text = 'كيلو';
           else if (type == ProductUiType.liquid) _unit.text = 'لتر';
-          else if (type == ProductUiType.standard) _unit.text = 'حبة';
+          else if (type == ProductUiType.standard || type == ProductUiType.bulk) _unit.text = 'حبة';
         });
       },
       child: AnimatedContainer(
@@ -248,9 +249,23 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
           const SizedBox(height: 12),
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: SizedBox(height: 180, child: MobileScanner(
-              controller: _scannerController,
-              onDetect: _onBarcodeDetect,
+            child: SizedBox(height: 180, child: Stack(
+              children: [
+                MobileScanner(
+                  controller: _scannerController,
+                  onDetect: _onBarcodeDetect,
+                ),
+                  Positioned(
+                    top: 8, right: 8,
+                    child: CircleAvatar(
+                      backgroundColor: Colors.black54,
+                      child: IconButton(
+                        icon: const Icon(Icons.flash_on, color: Colors.white),
+                        onPressed: () => _scannerController.toggleTorch(),
+                      ),
+                    ),
+                  ),
+              ],
             )),
           ),
         ],
@@ -294,53 +309,122 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
     ),
   );
 
-  Widget _buildSmartUnitSection() {
-    if (_uiType == ProductUiType.standard) return const SizedBox.shrink();
-
+  Widget _buildMultiUnitSection() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionTitle('إعدادات العبوة والجملة', Icons.auto_awesome),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [Colors.cyan.withOpacity(0.05), Colors.blue.withOpacity(0.05)]),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.cyan.withOpacity(0.2)),
-          ),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(flex: 2, child: _textField(_bulkFactor, 'تحتوي على كم؟', type: TextInputType.number, icon: Icons.numbers)),
-                  const SizedBox(width: 12),
-                  Expanded(flex: 3, child: _textField(_bulkUnitName, 'اسم العبوة (كرتون/كيس)', icon: Icons.box)),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _smartUnitHint(),
-            ],
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            TextButton.icon(
+              onPressed: _showAddUnitDialog,
+              icon: const Icon(Icons.add_circle_outline, size: 18, color: Colors.cyan),
+              label: const Text('إضافة وحدة قياس', style: TextStyle(color: Colors.cyan, fontSize: 13, fontWeight: FontWeight.bold)),
+            ),
+            _sectionTitle('وحدات القياس المتعددة', Icons.layers),
+          ],
         ),
+        if (_units.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(20),
+            width: double.infinity,
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.02), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white10)),
+            child: const Column(children: [
+              Icon(Icons.inventory_2_outlined, color: Colors.white12, size: 32),
+              SizedBox(height: 8),
+              Text('لا توجد وحدات إضافية. يمكنك البيع بـ (الحبة) فقط.', style: TextStyle(color: Colors.white24, fontSize: 11)),
+            ]),
+          )
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _units.length,
+            itemBuilder: (ctx, i) => _unitItemCard(_units[i], i),
+          ),
       ],
     );
   }
 
-  Widget _smartUnitHint() {
-    final factor = double.tryParse(_bulkFactor.text) ?? 1;
+  Widget _unitItemCard(ProductUnitModel u, int index) {
     final sell = double.tryParse(_sellPrice.text) ?? 0;
-    final bulkPrice = sell * factor;
+    final suggestedPrice = sell * u.conversionFactor;
+    
     return Container(
+      margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: Colors.white.withOpacity(0.03), borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161622),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          Text(
-            'سيتم بيع الـ ${_bulkUnitName.text} بـ ${bulkPrice.toStringAsFixed(0)} ر.ي تلقائياً',
-            style: const TextStyle(color: Colors.cyan, fontSize: 11, fontWeight: FontWeight.bold),
+          IconButton(onPressed: () => setState(() => _units.removeAt(index)), icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18)),
+          const Spacer(),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(u.unitName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              Text('1 ${u.unitName} = ${u.conversionFactor.toStringAsFixed(0)} ${_unit.text}', style: const TextStyle(color: Colors.white38, fontSize: 10)),
+            ],
           ),
-          const SizedBox(width: 8),
-          const Icon(Icons.lightbulb_outline, color: Colors.cyan, size: 14),
+          const SizedBox(width: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(color: Colors.cyan.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+            child: Text('${suggestedPrice.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold, fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddUnitDialog() {
+    final nameCtrl = TextEditingController();
+    final factorCtrl = TextEditingController();
+    final priceCtrl = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('إضافة وحدة جديدة', textAlign: TextAlign.right, style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _textField(nameCtrl, 'اسم الوحدة (مثلاً: كرتون)', icon: Icons.inventory_2),
+            const SizedBox(height: 12),
+            _textField(factorCtrl, 'الكمية داخل الوحدة', type: TextInputType.number, icon: Icons.numbers),
+            const SizedBox(height: 12),
+            _textField(priceCtrl, 'سعر بيع هذه الوحدة (اختياري)', type: TextInputType.number, icon: Icons.sell),
+            const SizedBox(height: 8),
+            const Text('إذا تركت السعر فارغاً، سيتم حسابه تلقائياً', style: TextStyle(color: Colors.white24, fontSize: 10), textAlign: TextAlign.right),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء', style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+            onPressed: () {
+              final factor = double.tryParse(factorCtrl.text) ?? 1;
+              final customPrice = double.tryParse(priceCtrl.text);
+              if (nameCtrl.text.isNotEmpty && factor > 0) {
+                setState(() => _units.add(ProductUnitModel(
+                  productId: widget.existing?.id ?? 0,
+                  unitName: nameCtrl.text.trim(),
+                  conversionFactor: factor,
+                  isSaleUnit: true,
+                  isPurchaseUnit: true,
+                  // سنقوم بتخزين السعر المخصص لاحقاً إذا احتجنا، 
+                  // حالياً النظام يحسب السعر بناءً على المعامل (Conversion Factor)
+                )));
+                Navigator.pop(ctx);
+              }
+            },
+            child: const Text('إضافة', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
         ],
       ),
     );
@@ -381,11 +465,12 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
 
   // ── Helper Widgets ──
 
-  Widget _textField(TextEditingController c, String hint, {IconData? icon, TextInputType? type, bool required = false}) {
+  Widget _textField(TextEditingController c, String hint, {IconData? icon, TextInputType? type, bool required = false, FocusNode? focusNode}) {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: TextFormField(
         controller: c,
+        focusNode: focusNode,
         keyboardType: type,
         textAlign: TextAlign.right,
         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
@@ -412,9 +497,12 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
 
     return RawAutocomplete<String>(
       textEditingController: _category,
+      focusNode: _categoryFocusNode,
       optionsBuilder: (v) => v.text.isEmpty ? const Iterable<String>.empty() : allCategories.where((o) => o.contains(v.text)),
       onSelected: (s) => _category.text = s,
-      fieldViewBuilder: (ctx, ctrl, focus, onSubmitted) => _textField(ctrl, 'التصنيف (مثال: معلبات، منظفات...)', icon: Icons.category),
+      fieldViewBuilder: (ctx, ctrl, focus, onSubmitted) {
+        return _textField(ctrl, 'التصنيف (مثال: معلبات، منظفات...)', icon: Icons.category, focusNode: focus);
+      },
       optionsViewBuilder: (ctx, onSel, options) => Align(
         alignment: Alignment.topRight,
         child: Material(
@@ -523,17 +611,7 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
     final pp = context.read<ProductProvider>();
     
     // Prepare Units
-    List<ProductUnitModel> finalUnits = [];
-    if (_uiType == ProductUiType.bulk) {
-      final factor = double.tryParse(_bulkFactor.text) ?? 1;
-      finalUnits.add(ProductUnitModel(
-        productId: widget.existing?.id ?? 0,
-        unitName: _bulkUnitName.text.trim().isEmpty ? 'عبوة' : _bulkUnitName.text.trim(),
-        conversionFactor: factor,
-        isSaleUnit: true,
-        isPurchaseUnit: true,
-      ));
-    }
+    List<ProductUnitModel> finalUnits = List.from(_units);
 
     final product = ProductModel(
       id: widget.existing?.id,

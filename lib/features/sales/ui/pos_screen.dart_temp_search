@@ -1,0 +1,13 @@
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: TextField(
+          textAlign: TextAlign.right,
+          style: const TextStyle(color: Colors.white),
+          onChanged: (v) => setState(() => _q = v.trim()),
+          decoration: InputDecoration(
+            hintText: 'بحث باسم أو باركود...',
+            hintStyle: const TextStyle(color: Colors.grey),
+            suffixIcon: const Icon(Icons.search, color: Colors.grey),
+            filled: true, fillColor: const Color(0xFF1A1A24),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+          ),
+        )),
+        const SizedBox(height: 12),
