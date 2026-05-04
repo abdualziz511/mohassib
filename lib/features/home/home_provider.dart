@@ -31,6 +31,9 @@ class HomeProvider extends ChangeNotifier {
 
   bool isLoading = false;
 
+  // مخزون
+  int lowStockCount = 0;
+
   String get today => DateTime.now().toIso8601String().substring(0, 10);
 
   Future<void> loadDashboard() async {
@@ -45,12 +48,14 @@ class HomeProvider extends ChangeNotifier {
         _db.getDebtsSummary(),
         _db.getSales(dateFilter: today),
         _db.getStoreSettings(),
+        _db.getLowStockCount(),
       ]);
 
       final stats    = results[0] as Map<String, double>;
       final debts    = results[1] as Map<String, double>;
       final salesRows = results[2] as List<Map<String, dynamic>>;
       final settings = results[3] as Map<String, dynamic>?;
+      lowStockCount  = results[4] as int;
 
       todaySales        = stats['sales']         ?? 0;
       todayExpenses     = stats['expenses']      ?? 0;

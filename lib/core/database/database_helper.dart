@@ -36,7 +36,7 @@ class DatabaseHelper {
       return databaseFactory.openDatabase(path, options: options);
     }(
       path,
-      version: 9,
+      version: 11,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onConfigure: (db) async => await db.execute('PRAGMA foreign_keys = ON'),
@@ -228,6 +228,40 @@ class DatabaseHelper {
       try { await db.execute('CREATE INDEX IF NOT EXISTS idx_stock_movements_pid ON stock_movements(product_id)'); } catch(_) {}
       try { await db.execute('CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(created_at)'); } catch(_) {}
     }
+
+    if (oldVersion < 10) {
+      // إضافة جدول تصنيفات المصروفات
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS expense_categories (
+          id         INTEGER PRIMARY KEY AUTOINCREMENT,
+          name       TEXT    NOT NULL UNIQUE,
+          icon       TEXT,
+          color      TEXT,
+          is_default INTEGER NOT NULL DEFAULT 0,
+          sort_order INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+      // إدراج التصنيفات الافتراضية
+      final defCats = [
+        {'name': 'إيجار',                    'icon': 'home',          'is_default': 1, 'sort_order': 1},
+        {'name': 'كهرباء',                   'icon': 'flash_on',      'is_default': 1, 'sort_order': 2},
+        {'name': 'نقل',                      'icon': 'local_shipping', 'is_default': 1, 'sort_order': 3},
+        {'name': 'الإلتزامات',               'icon': 'handshake',     'is_default': 1, 'sort_order': 4},
+        {'name': 'منتجات منتهية الصلاحية',   'icon': 'no_food',       'is_default': 1, 'sort_order': 5},
+        {'name': 'رواتب',                    'icon': 'people',        'is_default': 1, 'sort_order': 6},
+        {'name': 'صيانة',                    'icon': 'build',         'is_default': 1, 'sort_order': 7},
+        {'name': 'أخرى',                     'icon': 'more_horiz',    'is_default': 1, 'sort_order': 8},
+      ];
+      for (final c in defCats) {
+        try { await db.insert('expense_categories', c); } catch (_) {}
+      }
+    }
+
+    if (oldVersion < 11) {
+      try { await db.execute('ALTER TABLE product_units ADD COLUMN barcode TEXT'); } catch(_) {}
+      try { await db.execute('ALTER TABLE product_units ADD COLUMN sell_price REAL DEFAULT 0.0'); } catch(_) {}
+      try { await db.execute('CREATE INDEX idx_product_units_barcode ON product_units(barcode)'); } catch(_) {}
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -325,10 +359,14 @@ class DatabaseHelper {
         conversion_factor REAL    NOT NULL DEFAULT 1.0,
         is_purchase_unit  INTEGER NOT NULL DEFAULT 0,
         is_sale_unit      INTEGER NOT NULL DEFAULT 0,
-        price_markup      REAL    NOT NULL DEFAULT 0.0
+        price_markup      REAL    NOT NULL DEFAULT 0.0,
+        barcode           TEXT,
+        sell_price        REAL    DEFAULT 0.0
       )
     ''');
     await db.execute('CREATE INDEX idx_product_units_pid ON product_units(product_id)');
+    await db.execute('CREATE INDEX idx_product_units_barcode ON product_units(barcode)');
+
 
     // 7. الفواتير
     await db.execute('''
@@ -520,6 +558,18 @@ class DatabaseHelper {
       )
     ''');
 
+    // 19. تصنيفات المصروفات
+    await db.execute('''
+      CREATE TABLE expense_categories (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT    NOT NULL UNIQUE,
+        icon       TEXT,
+        color      TEXT,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+
     // بيانات افتراضية
     final now = DateTime.now().toIso8601String();
     
@@ -537,6 +587,21 @@ class DatabaseHelper {
     await db.insert('currencies', {'code': 'YER', 'name': 'ريال يمني', 'exchange_rate': 1.0, 'symbol': 'ر.ي', 'is_default': 1, 'updated_at': now});
     await db.insert('currencies', {'code': 'SAR', 'name': 'ريال سعودي', 'exchange_rate': 148.0, 'symbol': 'ر.س', 'is_default': 0, 'updated_at': now});
     await db.insert('currencies', {'code': 'USD', 'name': 'دولار أمريكي', 'exchange_rate': 530.0, 'symbol': '\$', 'is_default': 0, 'updated_at': now});
+
+    // تصنيفات المصروفات الافتراضية
+    final defCats = [
+      {'name': 'إيجار',                    'icon': 'home',          'is_default': 1, 'sort_order': 1},
+      {'name': 'كهرباء',                   'icon': 'flash_on',      'is_default': 1, 'sort_order': 2},
+      {'name': 'نقل',                      'icon': 'local_shipping', 'is_default': 1, 'sort_order': 3},
+      {'name': 'الإلتزامات',               'icon': 'handshake',     'is_default': 1, 'sort_order': 4},
+      {'name': 'منتجات منتهية الصلاحية',   'icon': 'no_food',       'is_default': 1, 'sort_order': 5},
+      {'name': 'رواتب',                    'icon': 'people',        'is_default': 1, 'sort_order': 6},
+      {'name': 'صيانة',                    'icon': 'build',         'is_default': 1, 'sort_order': 7},
+      {'name': 'أخرى',                     'icon': 'more_horiz',    'is_default': 1, 'sort_order': 8},
+    ];
+    for (final c in defCats) {
+      await db.insert('expense_categories', c);
+    }
   }
 
   // ─────────────────────────────────────────────
@@ -599,9 +664,38 @@ class DatabaseHelper {
 
   Future<Map<String, dynamic>?> getProductByBarcode(String barcode) async {
     final db = await database;
-    final rows = await db.query('products',
+    
+    // 1. نبحث في المنتج الأساسي
+    var rows = await db.query('products',
         where: 'barcode = ? AND is_active = 1', whereArgs: [barcode], limit: 1);
-    return rows.isEmpty ? null : rows.first;
+        
+    if (rows.isNotEmpty) {
+      final pMap = Map<String, dynamic>.from(rows.first);
+      pMap['selected_unit'] = null; // لم يستخدم وحدة فرعية
+      return pMap;
+    }
+
+    // 2. إذا لم نجد، نبحث في وحدات المنتجات
+    final unitRows = await db.query('product_units',
+        where: 'barcode = ?', whereArgs: [barcode], limit: 1);
+        
+    if (unitRows.isNotEmpty) {
+      final u = unitRows.first;
+      final productId = u['product_id'];
+      
+      // جلب المنتج الأساسي للوحدة
+      final pRows = await db.query('products',
+          where: 'id = ? AND is_active = 1', whereArgs: [productId], limit: 1);
+          
+      if (pRows.isNotEmpty) {
+        final pMap = Map<String, dynamic>.from(pRows.first);
+        // نعيد المنتج، مع دمج بيانات الوحدة لاستخدامها في المبيعات
+        pMap['selected_unit'] = u;
+        return pMap;
+      }
+    }
+    
+    return null;
   }
 
   Future<int> updateProduct(int id, Map<String, dynamic> data) async {
@@ -1638,9 +1732,9 @@ class DatabaseHelper {
         });
       }
 
-      // 3. سجل الحركة المالية (خروج نقدية)
-      // إذا كانت الفاتورة الأصلية كاش، نخصم من الصندوق
+      // 3. سجل الحركة المالية بناءً على طريقة الدفع الأصلية
       if (paymentMethod == 'cash') {
+        // فاتورة نقدية → نُرجع النقود من الصندوق
         await txn.insert('cash_transactions', {
           'type': 'out',
           'amount': totalAmount,
@@ -1649,9 +1743,55 @@ class DatabaseHelper {
           'notes': 'إرجاع مبلغ فاتورة #$saleNumber',
           'created_at': now,
         });
+      } else if (paymentMethod == 'debt') {
+        // فاتورة آجل → نُخفِّض رصيد العميل المدين
+        // جلب معرف العميل من الفاتورة الأصلية
+        final saleRows = await txn.query('sales',
+            where: 'id = ?', whereArgs: [saleId], limit: 1);
+        if (saleRows.isNotEmpty) {
+          final customerId = saleRows.first['customer_id'];
+          if (customerId != null) {
+            // تخفيض رصيد العميل بقدر المرتجع
+            await txn.rawUpdate('''
+              UPDATE customers
+              SET current_balance = MAX(0, current_balance - ?),
+                  updated_at = ?
+              WHERE id = ?
+            ''', [totalAmount, now, customerId]);
+
+            // تخفيض مبلغ الدين المرتبط بنفس القدر
+            // نطبّق على أحدث دين معلّق لهذا العميل
+            final debtRows = await txn.query('debts',
+                where: 'customer_id = ? AND type = ? AND status != ?',
+                whereArgs: [customerId, 'receivable', 'paid'],
+                orderBy: 'created_at DESC',
+                limit: 1);
+            if (debtRows.isNotEmpty) {
+              final debt = debtRows.first;
+              final debtId  = debt['id'] as int;
+              final oldAmt  = (debt['amount']  as num).toDouble();
+              final oldPaid = (debt['paid_amount'] as num).toDouble();
+              final newAmt  = (oldAmt - totalAmount).clamp(0.0, double.infinity);
+              final newStatus = newAmt <= oldPaid ? 'paid' : (oldPaid > 0 ? 'partial' : 'pending');
+              await txn.update('debts', {
+                'amount': newAmt,
+                'status': newStatus,
+                'updated_at': now,
+              }, where: 'id = ?', whereArgs: [debtId]);
+            }
+
+            // تسجيل الحركة في الصندوق كتخفيض من الذمم المدينة
+            await txn.insert('cash_transactions', {
+              'type': 'in',
+              'amount': totalAmount,
+              'reference_type': 'return_debt',
+              'reference_id': returnId,
+              'notes': 'إرجاع بيع آجل - فاتورة #$saleNumber',
+              'created_at': now,
+            });
+          }
+        }
       }
-      
-      // ملاحظة: إذا كانت "آجل"، يجب معالجة رصيد العميل (هذا تطوير مستقبلي مهم)
     });
 
     return returnId;
@@ -1660,6 +1800,81 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getReturns() async {
     final db = await database;
     return await db.query('returns', orderBy: 'created_at DESC');
+  }
+
+  // ─────────────────────────────────────────────
+  // LOW STOCK PRODUCTS
+  // ─────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> getLowStockProducts() async {
+    final db = await database;
+    return await db.rawQuery('''
+      SELECT * FROM products
+      WHERE is_active = 1
+        AND quantity <= low_stock_alert
+      ORDER BY quantity ASC
+    ''');
+  }
+
+  Future<int> getLowStockCount() async {
+    final db = await database;
+    final result = await db.rawQuery('''
+      SELECT COUNT(*) as cnt FROM products
+      WHERE is_active = 1 AND quantity <= low_stock_alert
+    ''');
+    return (result.first['cnt'] as int?) ?? 0;
+  }
+
+  // ─────────────────────────────────────────────
+  // EXPENSE CATEGORIES MANAGEMENT
+  // ─────────────────────────────────────────────
+  /// جلب التصنيفات من جدول expense_categories مرتبةً حسب sort_order
+  Future<List<Map<String, dynamic>>> getExpenseCategoriesFull() async {
+    final db = await database;
+    return await db.query('expense_categories', orderBy: 'sort_order ASC, name ASC');
+  }
+
+  Future<List<String>> getExpenseCategories() async {
+    final rows = await getExpenseCategoriesFull();
+    return rows.map((r) => r['name'] as String).toList();
+  }
+
+  Future<int> addExpenseCategory(String name) async {
+    final db = await database;
+    return await db.insert('expense_categories', {
+      'name': name.trim(),
+      'is_default': 0,
+      'sort_order': 99,
+    });
+  }
+
+  Future<void> renameExpenseCategory(String oldName, String newName) async {
+    final db = await database;
+    // تحديث الاسم في جدول التصنيفات
+    await db.update('expense_categories', {'name': newName.trim()},
+        where: 'name = ?', whereArgs: [oldName]);
+    // تحديث كل المصروفات القديمة
+    await db.update('expenses', {'category': newName.trim()},
+        where: 'category = ?', whereArgs: [oldName]);
+  }
+
+  Future<int> deleteExpenseCategory(String name) async {
+    final db = await database;
+    return await db.delete('expense_categories',
+        where: 'name = ? AND is_default = 0', whereArgs: [name]);
+  }
+
+  Future<Map<String, double>> getExpenseSummaryByCategory({String? dateFilter}) async {
+    final db = await database;
+    String where = '';
+    if (dateFilter != null) where = "WHERE created_at LIKE '$dateFilter%'";
+    final rows = await db.rawQuery('''
+      SELECT category, SUM(amount) as total
+      FROM expenses
+      $where
+      GROUP BY category
+      ORDER BY total DESC
+    ''');
+    return {for (var r in rows) r['category'] as String: (r['total'] as num).toDouble()};
   }
 
 

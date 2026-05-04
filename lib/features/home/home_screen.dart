@@ -21,6 +21,7 @@ import 'package:mohassib/features/customers/ui/customers_screen.dart';
 import 'package:mohassib/features/reports/ui/reports_screen.dart';
 import 'package:mohassib/features/reports/ui/cash_drawer_screen.dart';
 import 'package:mohassib/features/settings/ui/about_developer_screen.dart';
+import 'package:mohassib/features/products/ui/low_stock_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -66,6 +67,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     
                     const SizedBox(height: 16),
                     _buildDebtCard(isDark, hp),
+                    const SizedBox(height: 12),
+                    if (hp.lowStockCount > 0)
+                      _buildLowStockBanner(context, isDark, hp.lowStockCount),
                     const SizedBox(height: 24),
                     _buildQuickActions(context, isDark),
                     const SizedBox(height: 32),
@@ -426,6 +430,66 @@ class _HomeScreenState extends State<HomeScreen> {
           Text('${hp.totalPayable.toStringAsFixed(0)} ${hp.currency}', style: TextStyle(color: titleColor, fontSize: 18, fontWeight: FontWeight.bold)),
         ]),
       ]),
+    );
+  }
+
+  Widget _buildLowStockBanner(BuildContext context, bool isDark, int count) {
+    return GestureDetector(
+      onTap: () => Navigator.push(context,
+          MaterialPageRoute(builder: (_) => const LowStockScreen())),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.orange.shade900, Colors.deepOrange.shade700],
+            begin: Alignment.centerRight,
+            end: Alignment.centerLeft,
+          ),
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.orange.withOpacity(0.3),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            )
+          ],
+        ),
+        child: Row(children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.warning_amber_rounded,
+                color: Colors.white, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'تنبيه مخزون',
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 11),
+                ),
+                Text(
+                  '$count منتج يحتاج إلى تجديد المخزون',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.arrow_forward_ios,
+              color: Colors.white70, size: 14),
+        ]),
+      ),
     );
   }
 

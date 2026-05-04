@@ -5,6 +5,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:mohassib/features/products/models/product_model.dart';
+import 'package:mohassib/features/products/models/product_unit_model.dart';
 import 'package:mohassib/features/products/provider/product_provider.dart';
 import 'package:mohassib/features/sales/models/sales_models.dart';
 import 'package:mohassib/features/customers/provider/customer_provider.dart';
@@ -215,12 +216,38 @@ class _POSScreenState extends State<POSScreen> {
       _lastScanTime = now;
       final code = barcodes.first.rawValue!;
       final pp = context.read<ProductProvider>();
-      final product = pp.products.firstWhere((p) => p.barcode == code, orElse: () => ProductModel(id: -1, name: '', sellPrice: 0, buyPrice: 0, quantity: 0));
-      if (product.id != -1) {
+      
+      // نبحث عن الباركود في المنتج الأساسي أو في وحداته
+      ProductModel? matchedProduct;
+      ProductUnitModel? matchedUnit;
+      
+      for (final p in pp.products) {
+        if (p.barcode == code) {
+          matchedProduct = p;
+          break;
+        }
+        for (final u in p.units) {
+          if (u.barcode == code) {
+            matchedProduct = p;
+            matchedUnit = u;
+            break;
+          }
+        }
+        if (matchedProduct != null) break;
+      }
+
+      if (matchedProduct != null) {
         HapticFeedback.mediumImpact();
-        cart.addProduct(product);
+        cart.addProduct(matchedProduct);
+        
+        // إذا كان الباركود لوحدة فرعية، نحدث الوحدة في السلة فوراً
+        if (matchedUnit != null) {
+          final sellP = matchedUnit.sellPrice > 0 ? matchedUnit.sellPrice : matchedProduct.sellPrice * matchedUnit.conversionFactor;
+          cart.updateUnit(matchedProduct.id!, matchedUnit.unitName, matchedUnit.conversionFactor, sellP);
+        }
+
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تمت إضافة: ${product.name}', textDirection: TextDirection.rtl), duration: const Duration(seconds: 1), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تمت إضافة: ${matchedProduct.name} ${matchedUnit != null ? "(${matchedUnit.unitName})" : ""}', textDirection: TextDirection.rtl), duration: const Duration(seconds: 1), backgroundColor: Colors.green));
       } else {
         HapticFeedback.vibrate();
         ScaffoldMessenger.of(context).hideCurrentSnackBar();

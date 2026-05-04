@@ -6,6 +6,8 @@ class ProductUnitModel {
   final bool isPurchaseUnit;
   final bool isSaleUnit;
   final double priceMarkup; // زيادة سعر اختيارية لهذه الوحدة
+  final String? barcode;
+  final double sellPrice; // سعر البيع المستقل لهذه الوحدة إن وجد
 
   const ProductUnitModel({
     this.id,
@@ -15,6 +17,8 @@ class ProductUnitModel {
     this.isPurchaseUnit = false,
     this.isSaleUnit = false,
     this.priceMarkup = 0.0,
+    this.barcode,
+    this.sellPrice = 0.0,
   });
 
   factory ProductUnitModel.fromMap(Map<String, dynamic> m) => ProductUnitModel(
@@ -25,6 +29,8 @@ class ProductUnitModel {
     isPurchaseUnit: (m['is_purchase_unit'] as int?) == 1,
     isSaleUnit: (m['is_sale_unit'] as int?) == 1,
     priceMarkup: (m['price_markup'] as num?)?.toDouble() ?? 0.0,
+    barcode: m['barcode'] as String?,
+    sellPrice: (m['sell_price'] as num?)?.toDouble() ?? 0.0,
   );
 
   Map<String, dynamic> toMap() => {
@@ -35,5 +41,7 @@ class ProductUnitModel {
     'is_purchase_unit': isPurchaseUnit ? 1 : 0,
     'is_sale_unit': isSaleUnit ? 1 : 0,
     'price_markup': priceMarkup,
+    'barcode': barcode,
+    'sell_price': sellPrice,
   };
 }

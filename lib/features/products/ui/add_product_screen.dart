@@ -367,13 +367,15 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
             children: [
               Text(u.unitName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               Text('1 ${u.unitName} = ${u.conversionFactor.toStringAsFixed(0)} ${_unit.text}', style: const TextStyle(color: Colors.white38, fontSize: 10)),
+              if (u.barcode != null && u.barcode!.isNotEmpty)
+                Text('باركود: ${u.barcode}', style: const TextStyle(color: Colors.white24, fontSize: 10)),
             ],
           ),
           const SizedBox(width: 12),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(color: Colors.cyan.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
-            child: Text('${suggestedPrice.toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold, fontSize: 13)),
+            child: Text('${(u.sellPrice > 0 ? u.sellPrice : suggestedPrice).toStringAsFixed(0)} ر.ي', style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold, fontSize: 13)),
           ),
         ],
       ),
@@ -384,48 +386,197 @@ class _AddEditProductSheetState extends State<AddEditProductSheet> {
     final nameCtrl = TextEditingController();
     final factorCtrl = TextEditingController();
     final priceCtrl = TextEditingController();
+    final barcodeCtrl = TextEditingController();
+    bool scanning = false;
+
+    // تجميع الوحدات المتاحة للاختيار (الوحدة الأساسية + الوحدات المضافة سابقاً)
+    final List<Map<String, dynamic>> availableUnits = [
+      {'name': _unit.text.isEmpty ? 'حبة' : _unit.text, 'factor': 1.0},
+      ..._units.map((u) => <String, dynamic>{'name': u.unitName, 'factor': u.conversionFactor})
+    ];
+    Map<String, dynamic> selectedParent = availableUnits.first;
     
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A24),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Text('إضافة وحدة جديدة', textAlign: TextAlign.right, style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _textField(nameCtrl, 'اسم الوحدة (مثلاً: كرتون)', icon: Icons.inventory_2),
-            const SizedBox(height: 12),
-            _textField(factorCtrl, 'الكمية داخل الوحدة', type: TextInputType.number, icon: Icons.numbers),
-            const SizedBox(height: 12),
-            _textField(priceCtrl, 'سعر بيع هذه الوحدة (اختياري)', type: TextInputType.number, icon: Icons.sell),
-            const SizedBox(height: 8),
-            const Text('إذا تركت السعر فارغاً، سيتم حسابه تلقائياً', style: TextStyle(color: Colors.white24, fontSize: 10), textAlign: TextAlign.right),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء', style: TextStyle(color: Colors.grey))),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-            onPressed: () {
-              final factor = double.tryParse(factorCtrl.text) ?? 1;
-              final customPrice = double.tryParse(priceCtrl.text);
-              if (nameCtrl.text.isNotEmpty && factor > 0) {
-                setState(() => _units.add(ProductUnitModel(
-                  productId: widget.existing?.id ?? 0,
-                  unitName: nameCtrl.text.trim(),
-                  conversionFactor: factor,
-                  isSaleUnit: true,
-                  isPurchaseUnit: true,
-                  // سنقوم بتخزين السعر المخصص لاحقاً إذا احتجنا، 
-                  // حالياً النظام يحسب السعر بناءً على المعامل (Conversion Factor)
-                )));
-                Navigator.pop(ctx);
-              }
-            },
-            child: const Text('إضافة', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-          ),
-        ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1A1A24),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            title: const Text('إضافة وحدة قياس', textAlign: TextAlign.right, style: TextStyle(color: Colors.white)),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // حقل اسم الوحدة (مع تحديث الواجهة فوراً ليعكس الاسم في المعادلة)
+                  Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: TextFormField(
+                      controller: nameCtrl,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      onChanged: (_) => setDialogState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'اسم الوحدة (مثال: كرتون، باكت)',
+                        hintStyle: const TextStyle(color: Colors.white24, fontSize: 12),
+                        suffixIcon: const Icon(Icons.inventory_2, color: Colors.white24, size: 18),
+                        filled: true,
+                        fillColor: const Color(0xFF111116),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // المنطق الشجري: المعادلة الرياضية الواضحة
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.cyan.withOpacity(0.05), 
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.cyan.withOpacity(0.2))
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const Text('المعادلة الحسابية للوحدة:', style: TextStyle(color: Colors.cyan, fontSize: 12, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 12),
+                        Directionality(
+                          textDirection: TextDirection.rtl,
+                          child: Row(
+                            children: [
+                              const Text('1 ', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                              Expanded(
+                                child: Text(nameCtrl.text.isEmpty ? 'وحدة جديدة' : nameCtrl.text, 
+                                  style: const TextStyle(color: Colors.cyanAccent, fontSize: 16, fontWeight: FontWeight.bold), 
+                                  maxLines: 1, overflow: TextOverflow.ellipsis
+                                )
+                              ),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 8.0),
+                                child: Text('=', style: TextStyle(color: Colors.white54, fontSize: 20, fontWeight: FontWeight.bold)),
+                              ),
+                              SizedBox(
+                                width: 60, 
+                                child: TextField(
+                                  controller: factorCtrl, 
+                                  keyboardType: TextInputType.number, 
+                                  textAlign: TextAlign.center, 
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold), 
+                                  decoration: InputDecoration(
+                                    hintText: 'العدد', 
+                                    hintStyle: const TextStyle(color: Colors.grey, fontSize: 11), 
+                                    filled: true, 
+                                    fillColor: const Color(0xFF1A1A24), 
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none), 
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10)
+                                  )
+                                )
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                                  decoration: BoxDecoration(color: const Color(0xFF1A1A24), borderRadius: BorderRadius.circular(8)),
+                                  child: DropdownButtonHideUnderline(
+                                    child: DropdownButton<Map<String, dynamic>>(
+                                      value: selectedParent,
+                                      dropdownColor: const Color(0xFF1A1A24),
+                                      icon: const Icon(Icons.keyboard_arrow_down, color: Colors.cyan, size: 16),
+                                      isExpanded: true,
+                                      style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold, fontSize: 12),
+                                      items: availableUnits.map((u) => DropdownMenuItem(value: u, child: Text(u['name'] as String, textAlign: TextAlign.right, overflow: TextOverflow.ellipsis))).toList(),
+                                      onChanged: (v) {
+                                        if (v != null) setDialogState(() => selectedParent = v);
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      InkWell(
+                        onTap: () {
+                          setDialogState(() => scanning = !scanning);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: scanning ? Colors.redAccent.withOpacity(0.2) : Colors.cyan.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: scanning ? Colors.redAccent : Colors.cyan.withOpacity(0.3)),
+                          ),
+                          child: Icon(scanning ? Icons.stop : Icons.qr_code_scanner, color: scanning ? Colors.redAccent : Colors.cyan),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(child: _textField(barcodeCtrl, 'الباركود المستقل (اختياري)', icon: Icons.qr_code)),
+                    ],
+                  ),
+                  if (scanning) ...[
+                    const SizedBox(height: 12),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: SizedBox(height: 150, child: MobileScanner(
+                        onDetect: (capture) {
+                          final barcodes = capture.barcodes;
+                          if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+                            HapticFeedback.lightImpact();
+                            setDialogState(() {
+                              barcodeCtrl.text = barcodes.first.rawValue!;
+                              scanning = false;
+                            });
+                          }
+                        },
+                      )),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  _textField(priceCtrl, 'سعر بيع هذه الوحدة (اختياري)', type: TextInputType.number, icon: Icons.sell),
+                  const SizedBox(height: 8),
+                  const Text('إذا تركت السعر فارغاً، سيتم حسابه تلقائياً بناءً على سعر الوحدة الأساسية', style: TextStyle(color: Colors.white24, fontSize: 10), textAlign: TextAlign.right),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء', style: TextStyle(color: Colors.grey))),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                onPressed: () {
+                  final inputQty = double.tryParse(factorCtrl.text) ?? 0;
+                  final customPrice = double.tryParse(priceCtrl.text) ?? 0.0;
+                  if (nameCtrl.text.isNotEmpty && inputQty > 0) {
+                    
+                    // السحر الحسابي هنا: نضرب العدد المُدخل في معامل تحويل الوحدة المختارة (للوصول للوحدة الأساسية)
+                    final parentFactor = selectedParent['factor'] as double;
+                    final finalResolvedFactor = inputQty * parentFactor;
+
+                    setState(() => _units.add(ProductUnitModel(
+                      productId: widget.existing?.id ?? 0,
+                      unitName: nameCtrl.text.trim(),
+                      conversionFactor: finalResolvedFactor,
+                      isSaleUnit: true,
+                      isPurchaseUnit: true,
+                      barcode: barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim(),
+                      sellPrice: customPrice,
+                    )));
+                    Navigator.pop(ctx);
+                  }
+                },
+                child: const Text('إضافة', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        }
       ),
     );
   }

@@ -11,11 +11,7 @@ class ExpenseModel {
   final String? notes;
   final String createdAt;
 
-  static const List<String> categories = [
-    'الكل', 'إيجار', 'كهرباء', 'نقل', 'الإلتزامات',
-    'منتجات منتهية الصلاحية', 'رواتب', 'صيانة', 'أخرى',
-  ];
-
+  // أيقونات وألوان ثابتة للتصنيفات المعروفة
   static const Map<String, IconData> categoryIcons = {
     'إيجار': Icons.home,
     'كهرباء': Icons.flash_on,
@@ -70,6 +66,7 @@ class ExpenseProvider extends ChangeNotifier {
 
   List<ExpenseModel> _all = [];
   List<ExpenseModel> _filtered = [];
+  List<String> _categories = [];
   bool isLoading = false;
   String _activeCategory = 'الكل';
   String? _activeDateFilter;
@@ -78,16 +75,37 @@ class ExpenseProvider extends ChangeNotifier {
       ? _filtered
       : _all;
 
+  List<String> get categories => _categories.isEmpty
+      ? ['إيجار', 'كهرباء', 'نقل', 'الإلتزامات', 'رواتب', 'صيانة', 'أخرى']
+      : _categories;
+
   double get totalAmount => expenses.fold(0, (s, e) => s + e.amount);
   String get activeCategory => _activeCategory;
+
+  // تحميل التصنيفات من قاعدة البيانات
+  Future<void> loadCategories() async {
+    try {
+      _categories = await _db.getExpenseCategories();
+      notifyListeners();
+    } catch (_) {}
+  }
 
   Future<void> loadAll({String? dateFilter, String? category}) async {
     isLoading = true;
     notifyListeners();
     _activeDateFilter = dateFilter;
     _activeCategory = category ?? 'الكل';
-    final rows = await _db.getExpenses(dateFilter: dateFilter, category: _activeCategory == 'الكل' ? null : _activeCategory);
-    _all = rows.map(ExpenseModel.fromMap).toList();
+    // جلب التصنيفات والسجلات بالتوازي
+    final results = await Future.wait([
+      _db.getExpenses(
+          dateFilter: dateFilter,
+          category: _activeCategory == 'الكل' ? null : _activeCategory),
+      _db.getExpenseCategories(),
+    ]);
+    _all = (results[0] as List<Map<String, dynamic>>)
+        .map(ExpenseModel.fromMap)
+        .toList();
+    _categories = results[1] as List<String>;
     _filtered = _all;
     isLoading = false;
     notifyListeners();
@@ -108,6 +126,24 @@ class ExpenseProvider extends ChangeNotifier {
       await _db.deleteExpense(id);
       _all.removeWhere((e) => e.id == id);
       _applyFilter();
+      return true;
+    } catch (_) { return false; }
+  }
+
+  Future<bool> addCategory(String name) async {
+    try {
+      await _db.addExpenseCategory(name);
+      _categories = await _db.getExpenseCategories();
+      notifyListeners();
+      return true;
+    } catch (_) { return false; }
+  }
+
+  Future<bool> deleteCategory(String name) async {
+    try {
+      await _db.deleteExpenseCategory(name);
+      _categories = await _db.getExpenseCategories();
+      notifyListeners();
       return true;
     } catch (_) { return false; }
   }
